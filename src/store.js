@@ -5,7 +5,7 @@ var PersistentBackend = require("./persistent_quad_backend").QuadBackend;
 var InMemoryLexicon = require("./lexicon").Lexicon;
 var PersistentLexicon = require("./persistent_lexicon").Lexicon;
 var RDFModel = require("./rdf_model");
-var _ = require("lodash");
+var _ = require("./utils");
 
 
 /**
@@ -856,7 +856,7 @@ Store.prototype.close = function(cb) {
 /**
  * Version of the store
  */
-Store.VERSION = "0.9.3";
+Store.VERSION = "0.9.4";
 
 /**
  * Create a new RDFStore instance that will be

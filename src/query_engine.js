@@ -8,8 +8,8 @@ var QueryFilters = require("./query_filters").QueryFilters;
 var RDFModel = require("./rdf_model");
 var RDFLoader = require("./rdf_loader").RDFLoader;
 var Callbacks = require("./graph_callbacks").CallbacksBackend;
-var async = require('async');
-var _ = require('lodash');
+var async = require('./utils');
+var _ = require('./utils');
 
 QueryEngine = function(params) {
     if(arguments.length != 0) {
@@ -121,38 +121,43 @@ QueryEngine.prototype.applyLimitOffset = function(offset, limit, bindings) {
 };
 
 
-QueryEngine.prototype.applySingleOrderBy = function(orderFilters, modifiedBindings, dataset, outEnv) {
+QueryEngine.prototype.applySingleOrderBy = function(orderFilters, modifiedBindings, dataset, outEnv, callback) {
     var acum = [];
-    for(var i=0; i<orderFilters.length; i++) {
-        var orderFilter = orderFilters[i];
-        var results = QueryFilters.collect(orderFilter.expression, [modifiedBindings], dataset, outEnv, this);
-        acum.push(results[0].value);
-    }
-    return {binding:modifiedBindings, value:acum};
+    var that = this;
+    async.eachSeries(orderFilters, function(orderFilter,k){
+        QueryFilters.collect(orderFilter.expression, [modifiedBindings], dataset, outEnv, that, function(results) {
+            acum.push(results[0].value);
+            k()
+        });
+    }, function(){
+        callback({binding:modifiedBindings, value:acum})
+    });
 };
 
-QueryEngine.prototype.applyOrderBy = function(order, modifiedBindings, dataset, outEnv) {
+QueryEngine.prototype.applyOrderBy = function(order, modifiedBindings, dataset, outEnv, callback) {
     var that = this;
     var acum = [];
     if(order != null && order.length > 0) {
-        for(var i=0; i<modifiedBindings.length; i++) {
-            var bindings = modifiedBindings[i];
-            var results = that.applySingleOrderBy(order, bindings, dataset, outEnv);
-            acum.push(results);
-        }
+        async.eachSeries(modifiedBindings, function(bindings,k){
+            that.applySingleOrderBy(order, bindings, dataset, outEnv, function(results){
+                acum.push(results);
+                k();
+            });
+        }, function(){
+            acum.sort(function(a,b){
+                return that.compareFilteredBindings(a, b, order, outEnv);
+            });
 
-        acum.sort(function(a,b){
-            return that.compareFilteredBindings(a, b, order, outEnv);
+            var toReturn = [];
+            for(var i=0; i<acum.length; i++) {
+                toReturn.push(acum[i].binding);
+            }
+
+            callback(toReturn);
         });
 
-        var toReturn = [];
-        for(var i=0; i<acum.length; i++) {
-            toReturn.push(acum[i].binding);
-        }
-
-        return toReturn;
     } else {
-        return modifiedBindings;
+        callback(modifiedBindings);
     }
 };
 
@@ -275,18 +280,19 @@ QueryEngine.prototype.removeDefaultGraphBindings = function(bindingsList, datase
 };
 
 
-QueryEngine.prototype.aggregateBindings = function(projection, bindingsGroup, dataset, env) {
-    var denormBindings = this.copyDenormalizedBindings(bindingsGroup, env.outCache);
-    var aggregatedBindings = {};
-    for(var i=0; i<projection.length; i++) {
-        var aggregatedValue = QueryFilters.runAggregator(projection[i], denormBindings, this, dataset, env);
-        if(projection[i].alias) {
-            aggregatedBindings[projection[i].alias.value] = aggregatedValue;
-        } else {
-            aggregatedBindings[projection[i].value.value] = aggregatedValue;
+QueryEngine.prototype.aggregateBindings = function(projection, bindingsGroup, dataset, env, callback) {
+    this.copyDenormalizedBindings(bindingsGroup, env.outCache, function(denormBindings){
+        var aggregatedBindings = {};
+        for(var i=0; i<projection.length; i++) {
+            var aggregatedValue = QueryFilters.runAggregator(projection[i], denormBindings, this, dataset, env);
+            if(projection[i].alias) {
+                aggregatedBindings[projection[i].alias.value] = aggregatedValue;
+            } else {
+                aggregatedBindings[projection[i].value.value] = aggregatedValue;
+            }
         }
-    }
-    return(aggregatedBindings);
+        callback(aggregatedBindings);
+    });
 };
 
 
@@ -384,7 +390,7 @@ QueryEngine.prototype.normalizeDatasets = function(datasets, outerEnv, callback)
             dataset.oid = that.lexicon.defaultGraphOid;
             k();
         } else {
-            var oid = that.normalizeTerm(dataset, outerEnv, false, function(){
+            that.normalizeTerm(dataset, outerEnv, false, function(oid){
                 if(oid != null) {
                     dataset.oid = oid;
                 }
@@ -485,12 +491,14 @@ QueryEngine.prototype.normalizeQuad = function(quad, queryEnv, shouldIndex, call
 
 QueryEngine.prototype.denormalizeBindingsList = function(bindingsList, env, callback) {
     var that = this;
+    var denormList = [];
 
-    async.mapSeries(bindingsList, function(bindings, k){
+    async.eachSeries(bindingsList, function(bindings, k){
         that.denormalizeBindings(bindings, env, function(denorm){
-            k(null,denorm);
+            denormList.push(denorm);
+            k();
         });
-    },function(_,denormList){
+    },function(){
         callback(denormList);
     });
 };
@@ -503,7 +511,8 @@ QueryEngine.prototype.denormalizeBindingsList = function(bindingsList, env, call
  */
 QueryEngine.prototype.copyDenormalizedBindings = function(bindingsList, out, callback) {
     var that = this;
-    async.mapSeries(bindingsList, function(bindings, k){
+    var denormList = [];
+    async.eachSeries(bindingsList, function(bindings, k){
         var denorm = {};
         var variables = _.keys(bindings);
         async.eachSeries(variables, function(variable, kk){
@@ -531,9 +540,10 @@ QueryEngine.prototype.copyDenormalizedBindings = function(bindingsList, out, cal
                 }
             }
         },function(){
-            k(null,denorm);
+            denormList.push(denorm);
+            k();
         });
-    }, function(_, denormList){
+    }, function(){
         callback(denormList);
     });
 };
@@ -555,9 +565,8 @@ QueryEngine.prototype.denormalizeBindings = function(bindings, env, callback) {
             } else {
                 that.lexicon.retrieve(oid, function(val){
                     bindings[variable] = val;
-                    if(val.token === 'blank') {
+                    if(val.token === 'blank')
                         env.blanks[val.value] = oid;
-                    }
                     k();
                 });
             }
@@ -572,7 +581,6 @@ QueryEngine.prototype.denormalizeBindings = function(bindings, env, callback) {
 QueryEngine.prototype.execute = function(queryString, callback, defaultDataset, namedDataset){
     //try{
         queryString = Utils.normalizeUnicodeLiterals(queryString);
-
         var syntaxTree = this.abstractQueryTree.parseQueryString(queryString);
         if(syntaxTree == null) {
             callback(false,"Error parsing query string");
@@ -727,6 +735,7 @@ QueryEngine.prototype.executeSelect = function(unit, env, defaultDataset, namedD
             dataset.implicit.push(this.lexicon.defaultGraphUriTerm);
         }
 
+
         that.normalizeDatasets(dataset.implicit.concat(dataset.named), env, function(){
             try {
                 that.executeSelectUnit(projection, dataset, unit.pattern, env, function (result) {
@@ -746,26 +755,29 @@ QueryEngine.prototype.executeSelect = function(unit, env, defaultDataset, namedD
                         }
                         if (unit.group && unit.group != "") {
                             if (that.checkGroupSemantics(unit.group, projection)) {
-                                var groupedBindings = that.groupSolution(result, unit.group, dataset, env);
-
-                                var aggregatedBindings = [];
-
-                                for (var i = 0; i < groupedBindings.length; i++) {
-                                    var resultingBindings = that.aggregateBindings(projection, groupedBindings[i], dataset, env);
-                                    aggregatedBindings.push(resultingBindings);
-                                }
-                                callback(null, {'bindings': aggregatedBindings, 'denorm': true});
+                                that.groupSolution(result, unit.group, dataset, env, function(groupedBindings){
+                                    var aggregatedBindings = [];
+                                    async.eachSeries(groupedBindings, function(groupedBindingsGroup, k){
+                                        that.aggregateBindings(projection, groupedBindingsGroup, dataset, env, function(resultingBindings){
+                                            aggregatedBindings.push(resultingBindings);
+                                            k();
+                                        });
+                                    }, function(){
+                                        callback(null, {'bindings': aggregatedBindings, 'denorm': true});
+                                    });
+                                });
                             } else {
                                 callback(new Error("Incompatible Group and Projection variables"));
                             }
                         } else {
-                            var orderedBindings = that.applyOrderBy(order, result, dataset, env);
-                            var projectedBindings = that.projectBindings(projection, orderedBindings, dataset);
-                            var modifiedBindings = that.applyModifier(modifier, projectedBindings);
-                            var limitedBindings = that.applyLimitOffset(offset, limit, modifiedBindings);
-                            var filteredBindings = that.removeDefaultGraphBindings(limitedBindings, dataset);
+                            that.applyOrderBy(order, result, dataset, env, function(orderedBindings){
+                                var projectedBindings = that.projectBindings(projection, orderedBindings, dataset);
+                                var modifiedBindings = that.applyModifier(modifier, projectedBindings);
+                                var limitedBindings = that.applyLimitOffset(offset, limit, modifiedBindings);
+                                var filteredBindings = that.removeDefaultGraphBindings(limitedBindings, dataset);
 
-                            callback(null, filteredBindings);
+                                callback(null, filteredBindings);
+                            });
                         }
 
                     } else { // fail selectUnit
@@ -773,6 +785,7 @@ QueryEngine.prototype.executeSelect = function(unit, env, defaultDataset, namedD
                     }
                 });
             } catch(e) {
+                console.log(e);
                 callback(e);
             }
         });
@@ -782,28 +795,24 @@ QueryEngine.prototype.executeSelect = function(unit, env, defaultDataset, namedD
 };
 
 
-QueryEngine.prototype.groupSolution = function(bindings, group, dataset, queryEnv){
+QueryEngine.prototype.groupSolution = function(bindings, group, dataset, queryEnv, callback){
     var order = [];
     var filteredBindings = [];
     var initialized = false;
     var that = this;
     if(group === 'singleGroup') {
-        return [bindings];
+        callback([bindings]);
     } else {
-        for(var i=0; i<bindings.length; i++) {
-            var outFloop = arguments.callee;
-            var currentBindings = bindings[i];
+        async.eachSeries(bindings, function(currentBindings,k){
             var mustAddBindings = true;
 
             /**
-             * In this loop, we iterate through all the group clauses and tranform the current bindings
+             * In this loop, we iterate through all the group clauses and transform the current bindings
              * according to the group by clauses.
              * If it is the first iteration we also save in a different array the order for the
              * grouped variables that will be used later to build the final groups
              */
-            for(var j=0; j<group.length; j++) {
-                var floop = arguments.callee;
-                var currentOrderClause = group[j];
+            async.eachSeries(group, function(currentOrderClause, kk){
                 var orderVariable = null;
 
                 if(currentOrderClause.token === 'var') {
@@ -812,7 +821,7 @@ QueryEngine.prototype.groupSolution = function(bindings, group, dataset, queryEn
                     if(initialized == false) {
                         order.push(orderVariable);
                     }
-
+                    kk();
                 } else if(currentOrderClause.token === 'aliased_expression') {
                     orderVariable = currentOrderClause.alias.value;
                     if(initialized == false) {
@@ -822,7 +831,7 @@ QueryEngine.prototype.groupSolution = function(bindings, group, dataset, queryEn
                     if(currentOrderClause.expression.primaryexpression === 'var') {
                         currentBindings[currentOrderClause.alias.value] = currentBindings[currentOrderClause.expression.value.value];
                     } else {
-                        var denormBindings = this.copyDenormalizedBindings([currentBindings], queryEnv.outCache);
+                        var denormBindings = that.copyDenormalizedBindings([currentBindings], queryEnv.outCache);
                         var filterResultEbv = QueryFilters.runFilter(currentOrderClause.expression, denormBindings[0], that, dataset, queryEnv);
                         if(!QueryFilters.isEbvError(filterResultEbv)) {
                             if(filterResultEbv.value != null) {
@@ -833,69 +842,73 @@ QueryEngine.prototype.groupSolution = function(bindings, group, dataset, queryEn
                             mustAddBindings = false;
                         }
                     }
+                    kk();
                 } else {
                     // In this case, we create an additional variable in the binding to hold the group variable value
-                    var denormBindings = that.copyDenormalizedBindings([currentBindings], queryEnv.outCache);
-                    var filterResultEbv = QueryFilters.runFilter(currentOrderClause, denormBindings[0], that, queryEnv);
-                    if(!QueryFilters.isEbvError(filterResultEbv)) {
-                        currentBindings["groupCondition"+env._i] = filterResultEbv;
-                        orderVariable = "groupCondition"+env._i;
-                        if(initialized == false) {
-                            order.push(orderVariable);
+                    that.copyDenormalizedBindings([currentBindings], queryEnv.outCache, function(denormBindings){
+                        var filterResultEbv = QueryFilters.runFilter(currentOrderClause, denormBindings[0], that, queryEnv);
+                        if(!QueryFilters.isEbvError(filterResultEbv)) {
+                            currentBindings["groupCondition"+env._i] = filterResultEbv;
+                            orderVariable = "groupCondition"+env._i;
+                            if(initialized == false) {
+                                order.push(orderVariable);
+                            }
+
+                        } else {
+                            mustAddBindings = false;
                         }
-
+                        kk();
+                    });
+                }
+            }, function(){
+                if(initialized == false) {
+                    initialized = true;
+                }
+                if(mustAddBindings === true) {
+                    filteredBindings.push(currentBindings);
+                }
+                k();
+            });
+        }, function(){
+            /**
+             * After processing all the bindings, we build the group using the
+             * information stored about the order of the group variables.
+             */
+            var dups = {};
+            var groupMap = {};
+            var groupCounter = 0;
+            for(var i=0; i<filteredBindings.length; i++) {
+                var currentTransformedBinding = filteredBindings[i];
+                var key = "";
+                for(var j=0; j<order.length; j++) {
+                    var maybeObject = currentTransformedBinding[order[j]];
+                    if(typeof(maybeObject) === 'object') {
+                        key = key + maybeObject.value;
                     } else {
-                        mustAddBindings = false;
+                        key = key + maybeObject;
                     }
-
                 }
 
-            }
-            if(initialized == false) {
-                initialized = true;
-            }
-            if(mustAddBindings === true) {
-                filteredBindings.push(currentBindings);
-            }
-        }
-        /**
-         * After processing all the bindings, we build the group using the
-         * information stored about the order of the group variables.
-         */
-        var dups = {};
-        var groupMap = {};
-        var groupCounter = 0;
-        for(var i=0; i<filteredBindings.length; i++) {
-            var currentTransformedBinding = filteredBindings[i];
-            var key = "";
-            for(var j=0; j<order.length; j++) {
-                var maybeObject = currentTransformedBinding[order[j]];
-                if(typeof(maybeObject) === 'object') {
-                    key = key + maybeObject.value;
+                if(dups[key] == null) {
+                    //currentTransformedBinding["__group__"] = groupCounter;
+                    groupMap[key] = groupCounter;
+                    dups[key] = [currentTransformedBinding];
+                    //groupCounter++
                 } else {
-                    key = key + maybeObject;
+                    //currentTransformedBinding["__group__"] = dups[key][0]["__group__"];
+                    dups[key].push(currentTransformedBinding);
                 }
             }
 
-            if(dups[key] == null) {
-                //currentTransformedBinding["__group__"] = groupCounter;
-                groupMap[key] = groupCounter;
-                dups[key] = [currentTransformedBinding];
-                //groupCounter++
-            } else {
-                //currentTransformedBinding["__group__"] = dups[key][0]["__group__"];
-                dups[key].push(currentTransformedBinding);
+            // The final result is an array of arrays with all the groups
+            var groups = [];
+
+            for(var k in dups) {
+                groups.push(dups[k]);
             }
-        }
 
-        // The final result is an array of arrays with all the groups
-        var groups = [];
-
-        for(var k in dups) {
-            groups.push(dups[k]);
-        }
-
-        return groups;
+            callback(groups);
+        });
     }
 };
 
@@ -1063,6 +1076,7 @@ QueryEngine.prototype.executeUNION = function(projection, dataset, patterns, env
     var setQuery2 = patterns[1];
     var error = null;
     var set1,set2;
+
 
     if(patterns.length != 2) {
         throw("SPARQL algebra UNION with more than two components");
@@ -1364,8 +1378,6 @@ QueryEngine.prototype.executeUpdate = function(syntaxTree, callback) {
             var that = this;
             this.rdfLoader.load(aqt.sourceGraph.value, graph, function(err, result){
                 if(err) {
-                    console.log("Error loading graph");
-                    console.log(result);
                     callback(false, "error batch loading quads");
                 } else {
                     that.batchLoad(result,function(result){
@@ -1713,25 +1725,25 @@ QueryEngine.prototype._executeClearGraph = function(destinyGraph, queryEnv, call
     if(destinyGraph === 'default') {
         this.execute("DELETE { ?s ?p ?o } WHERE { ?s ?p ?o }", callback);
     } else if(destinyGraph === 'named') {
-        var that = this;
-        var graphs = this.lexicon.registeredGraphs(true);
-        if(graphs!=null) {
-            var foundErrorDeleting = false;
-            async.eachSeries(graphs, function(graph,k){
-                if(!foundErrorDeleting) {
-                    that.execute("DELETE { GRAPH <"+graph+"> { ?s ?p ?o } } WHERE { GRAPH <"+graph+"> { ?s ?p ?o } }", function(success, results){
-                        foundErrorDeleting = !success;
+        that.lexicon.registeredGraphs(true, function(graphs){
+            if(graphs!=null) {
+                var foundErrorDeleting = false;
+                async.eachSeries(graphs, function(graph,k){
+                    if(!foundErrorDeleting) {
+                        that.execute("DELETE { GRAPH <"+graph+"> { ?s ?p ?o } } WHERE { GRAPH <"+graph+"> { ?s ?p ?o } }", function(success, results){
+                            foundErrorDeleting = !success;
+                            k();
+                        });
+                    } else {
                         k();
-                    });
-                } else {
-                    k();
-                }
-            }, function(){
-                callback(!foundErrorDeleting);
-            });
-        } else {
-            callback(false, "Error deleting named graphs");
-        }
+                    }
+                }, function(){
+                    callback(!foundErrorDeleting);
+                });
+            } else {
+                callback(false, "Error deleting named graphs");
+            }
+        });
     } else if(destinyGraph === 'all') {
         var that = this;
         this.execute("CLEAR DEFAULT", function(err, result) {
@@ -1792,6 +1804,18 @@ QueryEngine.prototype.checkGroupSemantics = function(groupVars, projectionVars) 
     }
 
     return true;
+};
+
+QueryEngine.prototype.computeCosts = function (quads, env, callback) {
+    for (var i = 0; i < quads.length; i++) {
+        quads[i]['_cost'] = this.quadCost(quads[i], env);
+    }
+
+    callback(quads);
+};
+
+QueryEngine.prototype.quadCost = function(quad, env) {
+    return 1;
 };
 
 QueryEngine.prototype.registerDefaultNamespace = function(ns, prefix) {

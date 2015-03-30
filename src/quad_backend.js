@@ -1,8 +1,8 @@
 
 // imports
 var QuadIndex = require("./quad_index").QuadIndex;
-var async = require('async');
-var _ = require('lodash');
+var async = require('./utils');
+var _ = require('./utils');
 
 /*
  * "perfect" indices for RDF indexing

@@ -1,5 +1,3 @@
-var moment = require('moment');
-
 var nextTick = (function () {
 
     var global = null;
@@ -120,21 +118,46 @@ var lexicalFormBaseUri = function(term, env) {
     return uri;
 };
 
+
 parseISO8601 = function (str) {
-    return moment(str).toDate();
+    return Date.parse(str);
 };
 
+if (!Date.prototype.toISOString) {
+    (function() {
+
+        function pad(number) {
+            if (number < 10) {
+                return '0' + number;
+            }
+            return number;
+        }
+
+        Date.prototype.toISOString = function() {
+            return this.getUTCFullYear() +
+                '-' + pad(this.getUTCMonth() + 1) +
+                '-' + pad(this.getUTCDate()) +
+                'T' + pad(this.getUTCHours()) +
+                ':' + pad(this.getUTCMinutes()) +
+                ':' + pad(this.getUTCSeconds()) +
+                '.' + (this.getUTCMilliseconds() / 1000).toFixed(3).slice(2, 5) +
+                'Z';
+        };
+
+    }());
+}
+
 iso8601 = function(date) {
-    return moment(date).toISOString();
+    return date.toISOString();
 };
 
 compareDateComponents = function(stra,strb) {
-    var dateA = moment(stra);
-    var dateB = moment(strb);
+    var dateA = parseISO8601(stra);
+    var dateB = parseISO8601(strb);
 
-    if(dateA.isSame(dateB)) {
+    if(dateA == dateB) {
         return 0;
-    } else if(dateA.isBefore(dateB)) {
+    } else if(dateA < dateB) {
         return -1;
     } else {
         return 1;
@@ -225,7 +248,198 @@ function guid() {
     }
     return s4() + s4() + '-' + s4() + '-' + s4() + '-' +
         s4() + '-' + s4() + s4() + s4();
+}
+
+hashTerm = function(term) {
+    try {
+        if(term == null) {
+            return "";
+        } if(term.token==='uri') {
+            return "u"+term.value;
+        } else if(term.token === 'blank') {
+            return "b"+term.value;
+        } else if(term.token === 'literal') {
+            var l = "l"+term.value;
+            l = l + (term.type || "");
+            l = l + (term.lang || "");
+
+            return l;
+        }
+    } catch(e) {
+        if(typeof(term) === 'object') {
+            var key = "";
+            for(p in term) {
+                key = key + p + term[p];
+            }
+
+            return key;
+        }
+        return term;
+    }
 };
+
+var reject = function(xs,p) {
+    var acc = [];
+    for(var i=0; i<xs.length; i++) {
+        if(p(xs[i])) {
+            acc.push(xs[i]);
+        }
+    }
+
+    return acc;
+};
+
+var include = function(xs,p) {
+    for(var i=0; i<xs.length; i++){
+        if(xs[i] === p)
+            return true;
+    }
+
+    return false;
+};
+
+var each = function(xs,f) {
+    if(xs.forEach) {
+        xs.forEach(f);
+    } else {
+        for (var i = 0; i < xs.length; i++)
+            f(xs[i]);
+    }
+};
+
+var map = function(xs,f) {
+    if(xs.map) {
+        return xs.map(f);
+    } else {
+        var acc = [];
+        for (var i = 0; i < xs.length; i++)
+            acc[i] = f(xs[i]);
+
+        return acc;
+    }
+};
+
+var keys = function(xs) {
+    var acc = [];
+    for(var p in xs)
+        acc.push(p);
+    return acc;
+};
+
+var values = function(xs) {
+    var acc = [];
+    for(var p in xs)
+        acc.push(xs[p]);
+    return acc;
+};
+
+var size = function(xs) {
+    if(xs.length) {
+        return xs.length;
+    } else {
+        var acc = 0;
+        for(var p in xs)
+            acc++;
+        return acc;
+    }
+};
+
+clone = function(value) {
+    return JSON.parse(JSON.stringify(value));
+};
+
+var isObject = function(value) {
+    // Avoid a V8 JIT bug in Chrome 19-20.
+    // See https://code.google.com/p/v8/issues/detail?id=2291 for more details.
+    var type = typeof value;
+    return type == 'function' || (value && type == 'object') || false;
+};
+
+
+var create = (function() {
+    function Object() {}
+    return function(prototype) {
+        if (isObject(prototype)) {
+            Object.prototype = prototype;
+            var result = new Object;
+            Object.prototype = null;
+        }
+        return result || Object();
+    };
+}());
+
+var whilst = function (test, iterator, callback) {
+    if (test()) {
+        iterator(function (err) {
+            if (err) {
+                return callback(err);
+            }
+            whilst(test, iterator, callback);
+        });
+    }
+    else {
+        callback();
+    }
+};
+
+
+var eachSeries = function (arr, iterator, callback) {
+    callback = callback || function () {};
+    if (!arr.length) {
+        return callback();
+    }
+    var completed = 0;
+    var iterate = function () {
+        iterator(arr[completed], function (err) {
+            if (err) {
+                callback(err);
+                callback = function () {};
+            }
+            else {
+                completed += 1;
+                if (completed >= arr.length) {
+                    callback();
+                }
+                else {
+                    iterate();
+                }
+            }
+        });
+    };
+    iterate();
+};
+
+
+var reduce = function (arr, memo, iterator, callback) {
+    eachSeries(arr, function (x, callback) {
+        iterator(memo, x, function (err, v) {
+            memo = v;
+            callback(err);
+        });
+    }, function (err) {
+        callback(err, memo);
+    });
+};
+
+var seq = function (/* functions... */) {
+    var fns = arguments;
+    return function () {
+        var that = this;
+        var args = Array.prototype.slice.call(arguments);
+        var callback = args.pop();
+        reduce(fns, args, function (newargs, fn, cb) {
+                fn.apply(that, newargs.concat([function () {
+                    var err = arguments[0];
+                    var nextargs = Array.prototype.slice.call(arguments, 1);
+                    cb(err, nextargs);
+                }]))
+            },
+            function (err, results) {
+                callback.apply(that, [err].concat(results));
+            });
+    };
+};
+
 
 
 module.exports = {
@@ -238,5 +452,20 @@ module.exports = {
     normalizeUnicodeLiterals: normalizeUnicodeLiterals,
     lexicalFormLiteral: lexicalFormLiteral,
     registerIndexedDB: registerIndexedDB,
-    guid: guid
+    guid: guid,
+    hashTerm: hashTerm,
+    keys: keys,
+    values: values,
+    size: size,
+    map: map,
+    each: each,
+    forEach: each,
+    include: include,
+    reject: reject,
+    remove: reject,
+    clone: clone,
+    create: create,
+    whilst: whilst,
+    eachSeries: eachSeries,
+    seq: seq
 };

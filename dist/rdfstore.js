@@ -1,948 +1,6 @@
-!function(e){if("object"==typeof exports&&"undefined"!=typeof module)module.exports=e();else if("function"==typeof define&&define.amd)define([],e);else{var f;"undefined"!=typeof window?f=window:"undefined"!=typeof global?f=global:"undefined"!=typeof self&&(f=self),f.rdfstore=e()}}(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
-(function (__dirname){
-// imports
-var QueryEngine = require("./query_engine").QueryEngine;
-var InMemoryQuadBackend = require("./quad_backend").QuadBackend;
-var PersistentBackend = require("./persistent_quad_backend").QuadBackend;
-var InMemoryLexicon = require("./lexicon").Lexicon;
-var PersistentLexicon = require("./persistent_lexicon").Lexicon;
-var RDFModel = require("./rdf_model");
-var _ = require("./utils");
+!function(e){if("object"==typeof exports)module.exports=e();else if("function"==typeof define&&define.amd)define(e);else{var f;"undefined"!=typeof window?f=window:"undefined"!=typeof global?f=global:"undefined"!=typeof self&&(f=self),f.rdfstore=e()}}(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);throw new Error("Cannot find module '"+o+"'")}var f=n[o]={exports:{}};t[o][0].call(f.exports,function(e){var n=t[o][1][e];return s(n?n:e)},f,f.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(_dereq_,module,exports){
 
-
-/**
- * Creates a new store.<br/>
- * <br/>
- * It accepts two optional arguments, a map of configuration
- * options for the store and a callback function.<br/>
- *
- * @constructor
- * @param {Function} [callback] Callback that will be invoked when the store has been created
- * @param {Object} [params]
- * <ul>
- *  <li> persistent:  should the store use persistence? </li>
- *  <li> treeOrder: in versions of the store backed by the native indexing system, the order of the BTree indices</li>
- *  <li> name: when using persistence, the name for this store. In the MongoDB backed version, name of the DB used by the store. By default <code>'rdfstore_js'</code> is used</li>
- *  <li> overwrite: clears the persistent storage </li>
- *  <li> maxCacheSize: if using persistence, maximum size of the index cache </li>
- * </ul>
- */
-Store = function(arg1, arg2) {
-    var callback = null;
-    var params   = null;
-
-    if(arguments.length == 0) {
-        params ={};
-    } else if(arguments.length == 1) {
-        params   = {};
-        callback = arg1;
-    } else if(arguments.length > 1) {
-        params   = arg1;
-        callback = arg2;
-    } else {
-        throw("An optional argument map and a callback must be provided");
-    }
-
-    if(params['treeOrder'] == null) {
-        params['treeOrder'] = 15;
-    }
-
-    var Lexicon = InMemoryLexicon;
-    var QuadBackend = InMemoryQuadBackend;
-    if(params['persistent'] === true){
-        Lexicon = PersistentLexicon;
-        QuadBackend = PersistentBackend;
-    }
-    this.functionMap = {};
-
-    var that = this;
-    this.customFns = {};
-    new Lexicon(function(lexicon){
-        var createQuadBackend = function() {
-            new QuadBackend(params, function (backend) {
-                /*
-                 if(params['overwrite'] === true) {
-                 // delete index values
-                 backend.clear();
-                 }
-                 */
-                var createEngine = function() {
-                    params.backend = backend;
-                    params.lexicon = lexicon;
-                    that.engine = new QueryEngine(params);
-
-                    callback(null, that);
-                }
-                if(params['overwrite']) {
-                    backend.clear(createEngine)
-                } else {
-                    createEngine();
-                }
-            });
-        }
-        if(params['overwrite'] === true) {
-            // delete lexicon values
-            lexicon.clear(createQuadBackend);
-        } else {
-            createQuadBackend();
-        }
-
-    },params['name']);
-};
-
-
-/**
- * An instance of RDF JS Interface <code>RDFEnvironment</code>
- * associated to this graph instance.
- */
-Store.prototype.rdf = RDFModel.rdf;
-Store.prototype.rdf.api = RDFModel;
-
-/**
- * Registers a new function with an associated name that can
- * be invoked as 'custom:fn_name(arg1,arg2,...,argn)' inside
- * a SPARQL query.
- * <br/>
- * The registered function will receive two arguments, an
- * instance of the store's query filters engine and a list
- * with the arguments received by the function in the SPARQL query.
- * <br/>
- * The function must return a single token value that can
- * consist in a literal value or an URI.
- * <br/>
- * The following is an example literal value:
- * {token: 'literal', type:"http://www.w3.org/2001/XMLSchema#integer", value:'3'}
- * This is an example URI value:
- * {token: 'uri', value:'http://test.com/my_uri'}
- * <br/>
- * The query filters engine can be used to perform common operations
- * on the input values.
- * An error can be returne dusing the 'ebvError' function of the engine.
- * True and false values can be built directly using the 'ebvTrue' and
- * 'ebvFalse' functions.
- *
- * A complete reference of the available functions can be found in the
- * documentation or source code of the QueryFilters module.
- *
- * @arguments:
- * @param {String} [name]: name of the custom function, it will be accesible as custom:name in the query
- * @param {Function} [function]: lambda function with the code for the query custom function.
- */
-Store.prototype.registerCustomFunction = function(name, fn) {
-    this.customFns[name] = fn;
-    this.engine.setCustomFunctions(this.customFns);
-};
-
-/**
- * Executes a query in the store.<br/>
- * <br/>
- * There are two possible ways of invoking this function,
- * providing a pair of arrays of namespaces that will be
- * used to compute the union of the default and named
- * dataset, or without them.
- * <br/>
- * <br/>
- * Both invocations receive as an optional last parameter
- * a callback function that will receive the return status
- * of the query and the results.
- * <br/>
- * <br/>
- * Results can have different formats:
- * <ul>
- *  <li> SELECT queries: array of binding maps </li>
- *  <li> CONSTRUCT queries: RDF JS Interface Graph object </li>
- *  <li> ASK queries: JS boolean value </li>
- *  <li> LOAD/INSERT... queries: Number of triples modified/inserted </li>
- * </ul>
- *
- * @arguments:
- * @param {String} query
- * @param {String} [defaultURIs] default namespaces
- * @param {String} [namespacesURIs] named namespaces
- * @param {Function} [callback]
- */
-Store.prototype.execute = function() {
-    if(arguments.length === 3) {
-        this.executeWithEnvironment(arguments[0],
-            arguments[1],
-            arguments[2]);
-    } else if(arguments.length === 4) {
-        this.executeWithEnvironment(arguments[0],
-            arguments[1],
-            arguments[2],
-            arguments[3]);
-    } else {
-
-        var queryString;
-        var callback;
-
-        if(arguments.length === 1) {
-            queryString = arguments[0];
-            var callback = function(){};
-        } else if(arguments.length === 2) {
-            queryString = arguments[0];
-            callback = arguments [1];
-        }
-        this.engine.execute(queryString, callback);
-    }
-};
-
-/**
- * A variation of the execute function that expects
- * arguments containing values for the default and named
- * graphs that will be used in the query.
- *
- *
- * @arguments:
- * @param {String} query
- * @param {String} URIs default namespaces
- * @param {String} URIs named namespaces
- * @param {Function} [callback]
- */
-Store.prototype.executeWithEnvironment = function() {
-    var queryString, defaultGraphs, namedGraphs;
-
-    if(arguments.length === 3) {
-        queryString   = arguments[0];
-        // JSDoc fails if this is pushed outside
-        var callback  = function(){};
-        defaultGraphs = arguments[1];
-        namedGraphs   = arguments[2];
-    } else if(arguments.length === 4) {
-        queryString   = arguments[0];
-        var callback      = arguments [3];
-        defaultGraphs = arguments[1];
-        namedGraphs   = arguments[2];
-    }
-
-    defaultGraphs = _.map(defaultGraphs, function(graph){
-        return {'token':'uri','value':graph};
-    });
-    namedGraphs = _.map(namedGraphs, function(graph){
-        return {'token':'uri','value':graph};
-    });
-
-    this.engine.execute(queryString, callback, defaultGraphs, namedGraphs);
-};
-
-/**
- * Retrieves all the quads belonging to a certain graph
- * in the store as a RDF JS Interface Graph object.<br/>
- * <br/>
- * The function accepts as mandatory parameter a callback
- * function that will receive the a success notification and the returned graph.<br/>
- * <br/>
- * Optionally, the URI of the graph can also be passed as
- * the first argument. If no graph is specified, the
- * default graph will be returned.<br/>
- *
- * @arguments
- * @param {String} [graphURI] If this parameter is missing, the default graph will be returned
- * @param {Functon} callback
- */
-Store.prototype.graph = function() {
-    var graphUri = null;
-    var callback = null;
-    if(arguments.length === 1) {
-        callback = arguments[0] || function(){};
-        graphUri = this.engine.lexicon.defaultGraphUri;
-    } else if(arguments.length === 2) {
-        callback = arguments[1] || function(){};
-        graphUri = arguments[0];
-    } else {
-        throw("An optional graph URI and a callback function must be provided");
-    }
-
-    if(this.rdf.resolve(graphUri) != null) {
-        graphUri = this.rdf.resolve(graphUri);
-    }
-
-    this.engine.execute("CONSTRUCT { ?s ?p ?o } WHERE { GRAPH <" + graphUri + "> { ?s ?p ?o } }", callback);
-};
-
-/**
- * Retrieves all the quads belonging to a certain node
- * in the store as a RDF JS Interface Graph object containing
- * the collection of triples whose subject is the provided
- * node URI.<br/>
- * <br/>
- * The function accepts as mandatory parameters the node URI and
- * a callback unction that will receive a success notification and the returned node.<br/>
- * <br/>
- * Optionally, the URI of the graph where the node is contained
- * can also be passed as the first argument. <br/>
- * <br/>
- * If no graph is specified, the node will be looked into the
- * default graph.<br/>
- *
- * @arguments
- * @param {String} nodeURI URI of the node to look for
- * @param {String} [graphURI] If this parameter is missing, the node will be looked into the default graph
- * @param {Functon} callback
- */
-Store.prototype.node = function() {
-    var graphUri = null;
-    var callback = null;
-    var nodeUri  = null;
-    if(arguments.length === 2) {
-        nodeUri = arguments[0];
-        callback = arguments[1] || function(){};
-        graphUri = this.engine.lexicon.defaultGraphUri;
-    } else if(arguments.length === 3) {
-        nodeUri = arguments[0];
-        graphUri = arguments[1];
-        callback = arguments[2] || function(){};
-    } else {
-        throw("An optional graph URI, node URI and a callback function must be provided");
-    }
-
-    if(this.rdf.resolve(graphUri) != null) {
-        graphUri = this.rdf.resolve(graphUri);
-    }
-
-    if(this.rdf.resolve(nodeUri) != null) {
-        nodeUri = this.rdf.resolve(nodeUri);
-    }
-
-    this.engine.execute("CONSTRUCT { <" + nodeUri + "> ?p ?o } WHERE { GRAPH <" + graphUri + "> { <" + nodeUri + "> ?p ?o } }", callback);
-};
-
-/**
- * Associates an event listener function to a node URI. Every time the collection
- * of triples whose subject is the specified node URI changes, because an
- * insertion or deletion, the provided callback function will be invoked
- * receiving as a parameter a RDF JS Interface Graph object with the new
- * collection of triples.<br/>
- * <br/>
- * The function accepts two mandatory arguments, the URI of the node to observe
- * and the function that will receive the event notifications. An optional
- * third parameter, consisting of a callback function, can be passed and will be invoked
- * once the store had correctly configured the event listener.<br/>
- *<br/>
- * LOAD queries, batch loading data into the store, do not
- * trigger events by default. If you wish to be notified
- * by changes triggered by this kind of queries, invoke
- * the *setBatchLoadEvents* function with a true argument.<br/>
- *<br/>
- * The event listener function can be removed using the stopObservingNode function.
- *
- * @arguments
- * @param {String} nodeURI URI of the node to observe
- * @param {Function} eventListener Function that will be notified with the events
- * @param {Function} [callback] Function that will be invoked, once the event listener had been correctly set up.
- */
-Store.prototype.startObservingNode = function() {
-    var uri, graphUri, callback;
-
-    if(arguments.length === 2) {
-        uri = arguments[0];
-        callback = arguments[1];
-        this.engine.callbacksBackend.observeNode(uri, callback, function(){});
-    } else if(arguments.length === 3) {
-        uri = arguments[0];
-        graphUri = arguments[1];
-        callback = arguments[2];
-        this.engine.callbacksBackend.observeNode(uri, graphUri, callback, function(){});
-    }
-};
-
-/**
- * Removes a callback function associated to a node.<br/>
- * The event listener function object must be passed as an argument.<br/>
- *
- * @arguments
- * @param {Function} eventListener The event listener function to remove, the same passed as an argument to startObservingNode
- */
-Store.prototype.stopObservingNode = function(callback) {
-    this.engine.callbacksBackend.stopObservingNode(callback);
-};
-
-/**
- * Associates an event listener function to a SPARQL SELECT or
- * CONSTRUCT query.<br/>
- * Every time an update (insert, delete...) query modified the
- * triples in the store in a way that modifies the output of the
- * query, the event listener will be invoked with an updated
- * result.<br/>
- *<br/>
- * LOAD queries, batch loading data into the store, do not
- * trigger events by default. If you wish to be notified
- * by changes triggered by this kind of queries, invoke
- * the <code>setBatchLoadEvents</code> function with a true argument.<br/>
- *<br/>
- * The event listener function can be removed invoking the
- * <code>stopObservingQuery</code> function.
- *
- * @arguments
- * @param {String} query SELECT or CONSTRUCT SPARQL query
- * @param {Function} eventListener the function that will receive the notifications
- * @param {Function} [callback] optional function that will be invoked when the stored had set up the event listener function.
- */
-Store.prototype.startObservingQuery = function() {
-    var query = arguments[0];
-    var callback = arguments[1];
-    var endCallback = arguments[2];
-    if(endCallback!=null) {
-        this.engine.callbacksBackend.observeQuery(query, callback, endCallback);
-    } else {
-        this.engine.callbacksBackend.observeQuery(query, callback, function(){});
-    }
-};
-
-/**
- * Removes a callback function associated to a SPARQL query.<br/>
- * The event listener function object must be passed as an argument.
- *
- * @arguments
- * @param {Function} eventListener The event listener function to remove, the same passed as an argument to startObservingQuery
- */
-Store.prototype.stopObservingQuery = function(query) {
-    this.engine.callbacksBackend.stopObservingQuery(query);
-};
-
-/**
- * Associates an event listener to a pattern expressed as the
- * subject, predicate, object and graph string parameters passed
- * to the function. To match any value in that position, a <code>null</code>
- * value can be passed as an argument. e.g. <code>subscribe(null, null, null, g, cb)</code>,
- * will be notified with any change in the g graph.<br/>
- * The graph component of the pattern does not support a <code>null</code> value.<br/>
- *<br/>
- * Results will be notified as an Array of RDF JS Interface
- * <code>Triple</code> objects.<br/>
- *<br/>
- * LOAD queries, batch loading data into the store, do not
- * trigger events by default. If you wish to be notified
- * by changes triggered by this kind of queries, invoke
- * the <code>setBatchLoadEvents</code> function with a true argument.
- *
- * @arguments
- * @param {String} s subject or null for any subject
- * @param {String} p predicate or null for any predicate
- * @param {String} o object or null for any object
- * @param {String} g graph or null for any graph
- * @param {Function} event listener function that will be notified when a change occurs
- */
-Store.prototype.subscribe = function(s, p, o, g, callback) {
-    var that = this;
-    var adapterCb = function(event,triples){
-        var acum = [];
-        var queryEnv = {blanks:{}, outCache:{}};
-        var bindings = [];
-
-        _.each(triples, function(triple){
-            var s = RDFModel.buildRDFResource(triple.subject,bindings,that.engine,queryEnv);
-            var p = RDFModel.buildRDFResource(triple.predicate,bindings,that.engine,queryEnv);
-            var o = RDFModel.buildRDFResource(triple.object,bindings,that.engine,queryEnv);
-            if(s!=null && p!=null && o!=null) {
-                triple = new RDFModel.Triple(s,p,o);
-                acum.push(triple);
-            }
-        });
-
-        callback(event,acum);
-    };
-
-    this.functionMap[callback] = adapterCb;
-    this.engine.callbacksBackend.subscribe(s,p,o,g,adapterCb,function(){});
-};
-
-/**
- * Removes an event listener associated to a certain pattern.
- * The function passed as an argument to <code>subscribe</code> must be
- * passed as an argument.
- *
- * @arguments
- * @param {Function} callback The event listener to be removed
- */
-Store.prototype.unsubscribe = function(callback) {
-    var adapterCb = this.functionMap[callback];
-    this.engine.callbacksBackend.unsubscribe(adapterCb);
-    delete this.functionMap[callback];
-};
-
-/**
- * Register a combination of prefix and URI fragment in the default instance
- * of the RDF JS Interface API <code>RDFEnvironment</code> object associated
- * to the store and available through the <code>storeInstance.rdf</code> property.
- *
- * @arguments
- * @param {String} prefix The prefix to be associated
- * @param {String} URIFragment URI fragment the provided prefix will be resolved
- */
-Store.prototype.setPrefix = function(prefix, uri) {
-    this.rdf.setPrefix(prefix, uri);
-};
-
-/**
- * Defines the URI that will be used by default by the RDF JS Interface
- * API <code>RDFEnvironment</code> object associated to the store and available
- * through the <code>storeInstance.rdf</code> property.
- *
- * @arguments
- * @param {String} URIFragment The URI fragment will be used by default
- */
-Store.prototype.setDefaultPrefix = function(uri) {
-    this.rdf.setDefaultPrefix(uri);
-};
-
-/**
- * Inserts a RDF JS Interface API <code>Graph</code> object into the store.
- * The function receives a mandatory <code>Graph</code> object whose triples
- * will be inserted. Optionally, a URI string for a graph and a
- * callback function can be passed as arguments.<br/>
- * <br/>
- * If no graph URI is specified, triples will be inserted into the
- * default graph.<br/>
- * <br/>
- * If the callback function is specified, it will be invoked when all the
- * triples had been inserted into the store.<br/>
- *
- * @arguments
- * @param {RDFModel.Graph} triples a RDF JS Interface <code>Graph</code> object
- * @param {String} [graphURI] URI of the graph where the triples will be inserted. If it is missing, triples will be inserted in the default graph
- * @param {String} [callback] A callback function that will be invoked with a success notification and the number of triples inserted
- */
-Store.prototype.insert = function() {
-    var graph;
-    var triples;
-    var callback;
-    if(arguments.length === 1) {
-        triples = arguments[0];
-        callback= function(){};
-    } else if(arguments.length === 2) {
-        triples = arguments[0];
-        callback= arguments[1] || function(){};
-    } else if(arguments.length === 3) {
-        triples = arguments[0];
-        graph = this.rdf.createNamedNode(arguments[1]);
-        callback= arguments[2] || function(){};
-    } else {
-        throw("The triples to insert, an optional graph and callback must be provided");
-    }
-
-    var query = "";
-    var that = this;
-    triples.forEach(function(triple) {
-        query = query + that._nodeToQuery(triple.subject) + that._nodeToQuery(triple.predicate) + that._nodeToQuery(triple.object) + ".";
-    });
-
-    if(graph != null) {
-        query = "INSERT DATA { GRAPH " + this._nodeToQuery(graph) +" { "+ query + " } }";
-    } else {
-        query = "INSERT DATA { "+ query + " }";
-    }
-
-    this.engine.execute(query, callback);
-};
-
-Store.prototype._nodeToQuery = function(term) {
-    if(term.interfaceName === 'NamedNode') {
-        var resolvedUri = this.rdf.resolve(term.valueOf());
-        if(resolvedUri != null) {
-            return "<" + resolvedUri + ">";
-        } else {
-            return "<" + term.valueOf() + ">";
-        }
-    } else {
-        return term.toString();
-    }
-};
-
-/**
- * Removes the triples in a RDF JS Interface API <code>Graph</code> object from the store.
- * The function receives a mandatory <code>Graph</code> object whose triples
- * will be removed. Optionally, a URI string for a graph and a
- * callback function can be passed as arguments.<br/>
- * <br/>
- * If no graph URI is specified, triples will be removed from the
- * default graph.<br/>
- * <br/>
- * If the callback function is specified, it will be invoked when all the
- * triples had been removed from the store.
- *
- * @arguments
- * @param {RDFModel.Graph} triples a RDF JS Interface <code>Graph</code> object
- * @param {String} [graphURI] URI of the graph where the triples will be removed from. If it is missing, triples will be removed from the default graph
- * @param {String} [callback] A callback function that will be invoked with a success notification
- */
-Store.prototype.delete = function() {
-
-    var graph;
-    var triples;
-    var callback;
-    if(arguments.length === 1) {
-        triples = arguments[0];
-        callback= function(){};
-    } else if(arguments.length === 2) {
-        triples = arguments[0];
-        callback= arguments[1] || function(){};
-    } else if(arguments.length === 3) {
-        triples = arguments[0];
-        graph = this.rdf.createNamedNode(arguments[1]);
-        callback= arguments[2] || function(){};
-    } else {
-        throw("The triples to delete, an optional graph and callback must be provided");
-    }
-
-    var query = "";
-    var that = this;
-    triples.forEach(function(triple) {
-        query = query + that._nodeToQuery(triple.subject) + that._nodeToQuery(triple.predicate) + that._nodeToQuery(triple.object) + ".";
-    });
-
-    if(graph != null) {
-        query = "DELETE DATA { GRAPH " + this._nodeToQuery(graph) +" { "+ query + " } }";
-    } else {
-        query = "DELETE DATA { "+ query + " }";
-    }
-
-    this.engine.execute(query, callback);
-};
-
-/**
- * Removes all the triples stored in a graph.
- *
- * The URI of the graph and a callback function can be
- * optinally passed as parameters.<br/>
- * <br/>
- * If no graph URI is specified, all triples in the
- * default graph will be removed.
- *
- * @arguments
- * @param {String} [graph] the URI of the graph the triples must be removed from
- * @param {Function} [callback] a function that will be invoked with a success notification
- */
-Store.prototype.clear = function() {
-    var graph;
-    var callback;
-
-    if(arguments.length === 0) {
-        graph = this.rdf.createNamedNode(this.engine.lexicon.defaultGraphUri);
-        var callback= function(){};
-    } else if(arguments.length === 1) {
-        graph = this.rdf.createNamedNode(this.engine.lexicon.defaultGraphUri);
-        callback= arguments[0] || function(){};
-    } else if(arguments.length === 2) {
-        graph = this.rdf.createNamedNode(arguments[0]);
-        callback= arguments[1] || function(){};
-    } else {
-        throw("The optional graph and a callback must be provided");
-    }
-
-    var query = "CLEAR GRAPH " + this._nodeToQuery(graph);
-    this.engine.execute(query, callback);
-};
-
-/**
- * Boolean value determining if loading RDF must produce
- * triple add events and fire callbacks.<br/>
- * Default value is false.
- *
- * @arguments
- * @param {boolean} mustFireEvents true/false value.
- */
-Store.prototype.setBatchLoadEvents = function(mustFireEvents){
-    this.engine.eventsOnBatchLoad = mustFireEvents;
-};
-
-/**
- * Registers a namespace prefix that will be automatically declared
- * in all the queries.<br/>
- * <br/>
- * The prefix will also be inserte in the default <code>RDFEnvironment</code> object
- * associated to the <code>rdf</code> property of the store instance.
- *
- * @arguments
- * @param {String} ns the name space to be regsitered
- * @param {String} prefix the URI fragment associated to the name space
- */
-Store.prototype.registerDefaultNamespace = function(ns, prefix) {
-    this.rdf.prefixes.set(ns,prefix);
-    this.engine.registerDefaultNamespace(ns,prefix);
-};
-
-/**
- * Registers the default namespaces declared in the RDF JS Interfaces
- * specification in the default Profile.
- */
-Store.prototype.registerDefaultProfileNamespaces = function() {
-    var defaultNsMap = this.rdf.prefixes.values();
-    for (var p in defaultNsMap) {
-        this.registerDefaultNamespace(p,defaultNsMap[p]);
-    }
-};
-
-/**
- * Load triples into a graph in the store. Data can be passed directly to the method
- * or a remote URI speifying where the data is located can be used.<br/>
- *<br/>
- * If the data is passed directly to the load function, the media type stating the format
- * of the data must also be passed to the function.<br/>
- *<br/>
- * If an URI is passed as a parameter, the store will attempt to perform content negotiation
- * with the remote server and get a representation for the RDF data matching one of the
- * the RDF parsers registered in the store. In this case, the media type parameter must be
- * set to the <code>'remote'</code> value.<br/>
- *<br/>
- * An additional URI for the graph where the parsed data will be loaded and a callback function
- * can be also passed as parameters. If no graph is specified, triples will be loaded in the
- * default graph.<br/>
- *<br/>
- * By default loading data will not trigger notification through the events API. If events needs to
- * be trigger, the functio <code>setBatchLoadEvents</code> must be invoked with a true parameter.
- *
- * @arguments
- * @param {String} mediaType Media type (application/json, text/n3...) of the data to be parsed or the value <code>'remote'</code> if a URI for the data is passed instead
- * @param {String} data RDF data to be parsed and loaded or an URI where the data will be retrieved after performing content negotiation
- * @param {String} [graph] Graph where the parsed triples will be inserted. If it is not specified, triples will be loaded in the default graph
- * @param {Function} callback that will be invoked with a success notification and the number of triples loaded.
- */
-Store.prototype.load = function(){
-    var mediaType;
-    var data;
-    var graph;
-    var callback;
-    var options = {};
-
-    if(arguments.length === 3) {
-        graph = this.rdf.createNamedNode(this.engine.lexicon.defaultGraphUri);
-        mediaType = arguments[0];
-        data = arguments[1];
-        callback= arguments[2] || function(){};
-    } else if(arguments.length === 4) {
-        mediaType = arguments[0];
-        data = arguments[1];
-        options = arguments[2];
-        if(typeof(options) === 'string') {
-            graph = this.rdf.createNamedNode(options);
-            options = {};
-        } else {
-            graph = this.rdf.createNamedNode(options.graph || this.engine.lexicon.defaultGraphUri);
-            delete options['graph'];
-        }
-        callback= arguments[3] || function(){};
-    } else if(arguments.length === 2) {
-        throw("The mediaType of the parser, the data a callback and an optional graph must be provided");
-    }
-
-    if(mediaType === 'remote') {
-        data = this.rdf.createNamedNode(data);
-        var query = "LOAD <"+data.valueOf()+"> INTO GRAPH <"+graph.valueOf()+">";
-        this.engine.execute(query, callback);
-    } else {
-
-        var that = this;
-
-        var parser = this.engine.rdfLoader.parsers[mediaType];
-
-        if (!parser) return callback(new Error("Cannot find parser for the provided media type:"+mediaType));
-
-        var cb = function(err, quads) {
-            if(err) {
-                callback(err, quads);
-            } else {
-                that.engine.batchLoad(quads,function(success){
-                    if(success != null){
-                        callback(null,success);
-                    } else {
-                        callback(new Error("Erro batch-loading triples."));
-                    }
-                });
-            }
-        };
-
-        var args = [parser, {'token':'uri', 'value':graph.valueOf()}, data, options, cb];
-
-        if(data && typeof(data)==='string' && data.indexOf('file://')=== 0) {
-            this.engine.rdfLoader.loadFromFile.apply(null, args);
-        } else {
-            this.engine.rdfLoader.tryToParse.apply(null, args);
-        }
-    }
-};
-
-/**
- * Registers a new parser associated to the provided media type. If there is a parser already registered for
- * that media type, the new parser will replace the old one.<br/>
- *<br/>
- * Parsers must implement a function *parse* accepting the data to be parsed as the
- * first parameter and the destination graph URI as the second one.
- * They must return an array of objects with properties: 'subject', 'predicate', 'object'
- * and 'graph' containing lexical representations for these values:
- *<br/>
- *<ul>
- * <li><code>{literal: '"literal"'}</code></li>
- * <li><code>{literal: ''"literal"^^<datatype>'}</code></li>
- * <li><code>{literal: '"literal"@lang'}</code></li>
- * <li><code>{uri: 'uri'}</code></li>
- * <li><code>{blank: '_:label'}</code></li>
- *</ul>
- *<br/>
- * The provided media type will be used to perform content negotiation when dealing with remote
- * resources, or to select the parser in the <code>load</code> function.
- *
- * @arguments
- * @param {String} mediaType the media type for this parser
- * @param {String} parser an object containing the *parse* function with the parser logic
- */
-Store.prototype.registerParser = function(mediaType, parser) {
-    this.engine.rdfLoader.registerParser(mediaType,parser);
-};
-
-/**
- * Returns the URI of all the graphs currently contained
- * in the store
- *
- * @arguments:
- * @param {Function} callback function that will receive a success notification and the array of graph URIs
- */
-Store.prototype.registeredGraphs = function(callback) {
-    this.engine.lexicon.registeredGraphs(true, function(graphs){
-        var graphNodes = _.map(graphs, function(graph){
-            return new RDFModel.NamedNode(graph);
-        });
-
-        callback(null, graphNodes);
-    });
-};
-
-/**
- * Returns the current network transport being used by the
- * the store.
- *
- * The default transport uses TCP sockets in the Node.js version
- * and relies on jQuery in the browser version. This can be overriden
- * using the <code>setNetworkTransport</code> function.
- */
-Store.prototype.getNetworkTransport = function() {
-    return NetworkTransport;
-};
-
-/**
- * Sets the network transport used by the store.<br/>
- * <br/>
- * Network transport consist of an object implementing the <code>load</code>
- * function, receiving the URI to load, a string with the value
- * of the HTTP 'Accept' header for the store registered parsers,
- * a callback function where the retrieved data and the success notification
- * must be returned.<br/>
- *<br/>
- * Different examples with implementations of different transports can be found
- * in the source code of the store:
- *<ul>
- * <li>src/js-communication/src/tcp_transport.js</li>
- * <li>src/js-communication/src/ajax_transport.js</li>
- *</ul>
- * @arguments
- * @param networkTransportImpl object implementing the transport *load* function.
- */
-Store.prototype.setNetworkTransport = function(networkTransportImpl) {
-    NetworkTransport = networkTransportImpl;
-};
-
-
-/**
- * Clean-up function releasing all temporary resources held by the
- * store instance.
- */
-Store.prototype.close = function(cb) {
-    if(cb == null)
-        cb = function(){};
-    if(this.engine.close)
-        this.engine.close(cb);
-    else
-        cb();
-};
-
-/**
- * Version of the store
- */
-Store.VERSION = "0.9.4";
-
-/**
- * Create a new RDFStore instance that will be
- * executed in a web worker in the browser or a new process
- * in Node.js.
- * <br/>
- * <br/>
- * The first argument to this function is the URL/FS location
- * of the store script.
- * <br/>
- * <br/>
- * This parameter is mandatory in the browser. It is safe to
- * ignore this parameter in Node.js.
- * <br/>
- * <br/>
- * If support for web workers is not present, a regular
- * store object will be initialized and returned.
- * <br/>
- * <br/>
- *
- * @param {String} [scriptPath] URL of the RDFStore script
- * @param {Object[]} [args] Arguments to be passed to the store that will be created
- * @param {Function} callback Callback function that will be invoked with an error flag and the connection/store object.
- */
-var connect = function() {
-    var path, args, callback;
-    if(arguments.length == 1) {
-        path = __dirname;
-        args = {};
-        callback = arguments[0];
-    } else if(arguments.length == 2) {
-        if(typeof(arguments[0]) === 'string') {
-            path = arguments[0];
-            args = {};
-        } else {
-            path = __dirname+"/index.js";
-            args = arguments[0];
-        }
-        callback = arguments[1];
-    } else {
-        path = arguments[0];
-        args = arguments[1];
-        callback = arguments[2];
-    }
-    callback(new Error("Store#connect is not supported in the 1.x series of the library"));
-};
-
-/**
- * Creates a new instance of the store.
- *
- * The function accepts two optional arguments.
- * <br/>
- * If only one argument is passed it must be a
- * callback function that will be invoked when the
- * store had been created.<br/>
- * <br/>
- * If two arguments are passed the first one must
- * be a map of configuration parameters for the
- * store, and the second one the callback function.<br/>
- * <br/>
- * Take a look at the Store constructor function for
- * a detailed list of possible configuration parameters.<br/>
- *
- * @param {Object[]} [args] Arguments to be passed to the store that will be created
- * @param {Function} [callback] Callback function that will be invoked with an error flag and the connection/store object.
- */
-var create = function(){
-    if(arguments.length == 1) {
-        return new Store(arguments[0]);
-    } else if(arguments.length == 2) {
-        return new Store(arguments[0], arguments[1]);
-    } else {
-        return new Store();
-    };
-};
-
-module.exports.Store = Store;
-module.exports.create = create;
-module.exports.connect = connect;
-
-}).call(this,"/src")
-},{"./lexicon":49,"./persistent_lexicon":52,"./persistent_quad_backend":53,"./quad_backend":54,"./query_engine":56,"./rdf_model":60,"./utils":62}],2:[function(require,module,exports){
-
-},{}],3:[function(require,module,exports){
+},{}],2:[function(_dereq_,module,exports){
 /*!
  * The buffer module from node.js, for the browser.
  *
@@ -950,47 +8,31 @@ module.exports.connect = connect;
  * @license  MIT
  */
 
-var base64 = require('base64-js')
-var ieee754 = require('ieee754')
-var isArray = require('is-array')
+var base64 = _dereq_('base64-js')
+var ieee754 = _dereq_('ieee754')
 
 exports.Buffer = Buffer
 exports.SlowBuffer = Buffer
 exports.INSPECT_MAX_BYTES = 50
-Buffer.poolSize = 8192 // not used by this implementation
-
-var kMaxLength = 0x3fffffff
+Buffer.poolSize = 8192
 
 /**
- * If `Buffer.TYPED_ARRAY_SUPPORT`:
+ * If `Buffer._useTypedArrays`:
  *   === true    Use Uint8Array implementation (fastest)
- *   === false   Use Object implementation (most compatible, even IE6)
- *
- * Browsers that support typed arrays are IE 10+, Firefox 4+, Chrome 7+, Safari 5.1+,
- * Opera 11.6+, iOS 4.2+.
- *
- * Note:
- *
- * - Implementation must support adding new properties to `Uint8Array` instances.
- *   Firefox 4-29 lacked support, fixed in Firefox 30+.
- *   See: https://bugzilla.mozilla.org/show_bug.cgi?id=695438.
- *
- *  - Chrome 9-10 is missing the `TypedArray.prototype.subarray` function.
- *
- *  - IE10 has a broken `TypedArray.prototype.subarray` function which returns arrays of
- *    incorrect length in some situations.
- *
- * We detect these buggy browsers and set `Buffer.TYPED_ARRAY_SUPPORT` to `false` so they will
- * get the Object implementation, which is slower but will work correctly.
+ *   === false   Use Object implementation (compatible down to IE6)
  */
-Buffer.TYPED_ARRAY_SUPPORT = (function () {
+Buffer._useTypedArrays = (function () {
+  // Detect if browser supports Typed Arrays. Supported browsers are IE 10+, Firefox 4+,
+  // Chrome 7+, Safari 5.1+, Opera 11.6+, iOS 4.2+. If the browser does not support adding
+  // properties to `Uint8Array` instances, then that's the same as no `Uint8Array` support
+  // because we need to be able to add all the node Buffer API methods. This is an issue
+  // in Firefox 4-29. Now fixed: https://bugzilla.mozilla.org/show_bug.cgi?id=695438
   try {
     var buf = new ArrayBuffer(0)
     var arr = new Uint8Array(buf)
     arr.foo = function () { return 42 }
-    return 42 === arr.foo() && // typed array instances can be augmented
-        typeof arr.subarray === 'function' && // chrome 9-10 lack `subarray`
-        new Uint8Array(1).subarray(1, 1).byteLength === 0 // ie10 has broken `subarray`
+    return 42 === arr.foo() &&
+        typeof arr.subarray === 'function' // Chrome 9-10 lack `subarray`
   } catch (e) {
     return false
   }
@@ -1014,27 +56,28 @@ function Buffer (subject, encoding, noZero) {
 
   var type = typeof subject
 
+  // Workaround: node's base64 implementation allows for non-padded strings
+  // while base64-js does not.
+  if (encoding === 'base64' && type === 'string') {
+    subject = stringtrim(subject)
+    while (subject.length % 4 !== 0) {
+      subject = subject + '='
+    }
+  }
+
   // Find the length
   var length
   if (type === 'number')
-    length = subject > 0 ? subject >>> 0 : 0
-  else if (type === 'string') {
-    if (encoding === 'base64')
-      subject = base64clean(subject)
+    length = coerce(subject)
+  else if (type === 'string')
     length = Buffer.byteLength(subject, encoding)
-  } else if (type === 'object' && subject !== null) { // assume object is array-like
-    if (subject.type === 'Buffer' && isArray(subject.data))
-      subject = subject.data
-    length = +subject.length > 0 ? Math.floor(+subject.length) : 0
-  } else
-    throw new TypeError('must start with number, buffer, array or string')
-
-  if (this.length > kMaxLength)
-    throw new RangeError('Attempt to allocate Buffer larger than maximum ' +
-      'size: 0x' + kMaxLength.toString(16) + ' bytes')
+  else if (type === 'object')
+    length = coerce(subject.length) // assume that object is array-like
+  else
+    throw new Error('First argument needs to be a number, array or string.')
 
   var buf
-  if (Buffer.TYPED_ARRAY_SUPPORT) {
+  if (Buffer._useTypedArrays) {
     // Preferred: Return an augmented `Uint8Array` instance for best performance
     buf = Buffer._augment(new Uint8Array(length))
   } else {
@@ -1045,21 +88,20 @@ function Buffer (subject, encoding, noZero) {
   }
 
   var i
-  if (Buffer.TYPED_ARRAY_SUPPORT && typeof subject.byteLength === 'number') {
+  if (Buffer._useTypedArrays && typeof subject.byteLength === 'number') {
     // Speed optimization -- use set if we're copying from a typed array
     buf._set(subject)
   } else if (isArrayish(subject)) {
     // Treat array-ish objects as a byte array
-    if (Buffer.isBuffer(subject)) {
-      for (i = 0; i < length; i++)
+    for (i = 0; i < length; i++) {
+      if (Buffer.isBuffer(subject))
         buf[i] = subject.readUInt8(i)
-    } else {
-      for (i = 0; i < length; i++)
-        buf[i] = ((subject[i] % 256) + 256) % 256
+      else
+        buf[i] = subject[i]
     }
   } else if (type === 'string') {
     buf.write(subject, 0, encoding)
-  } else if (type === 'number' && !Buffer.TYPED_ARRAY_SUPPORT && !noZero) {
+  } else if (type === 'number' && !Buffer._useTypedArrays && !noZero) {
     for (i = 0; i < length; i++) {
       buf[i] = 0
     }
@@ -1068,25 +110,8 @@ function Buffer (subject, encoding, noZero) {
   return buf
 }
 
-Buffer.isBuffer = function (b) {
-  return !!(b != null && b._isBuffer)
-}
-
-Buffer.compare = function (a, b) {
-  if (!Buffer.isBuffer(a) || !Buffer.isBuffer(b))
-    throw new TypeError('Arguments must be Buffers')
-
-  var x = a.length
-  var y = b.length
-  for (var i = 0, len = Math.min(x, y); i < len && a[i] === b[i]; i++) {}
-  if (i !== len) {
-    x = a[i]
-    y = b[i]
-  }
-  if (x < y) return -1
-  if (y < x) return 1
-  return 0
-}
+// STATIC METHODS
+// ==============
 
 Buffer.isEncoding = function (encoding) {
   switch (String(encoding).toLowerCase()) {
@@ -1107,8 +132,44 @@ Buffer.isEncoding = function (encoding) {
   }
 }
 
+Buffer.isBuffer = function (b) {
+  return !!(b !== null && b !== undefined && b._isBuffer)
+}
+
+Buffer.byteLength = function (str, encoding) {
+  var ret
+  str = str + ''
+  switch (encoding || 'utf8') {
+    case 'hex':
+      ret = str.length / 2
+      break
+    case 'utf8':
+    case 'utf-8':
+      ret = utf8ToBytes(str).length
+      break
+    case 'ascii':
+    case 'binary':
+    case 'raw':
+      ret = str.length
+      break
+    case 'base64':
+      ret = base64ToBytes(str).length
+      break
+    case 'ucs2':
+    case 'ucs-2':
+    case 'utf16le':
+    case 'utf-16le':
+      ret = str.length * 2
+      break
+    default:
+      throw new Error('Unknown encoding')
+  }
+  return ret
+}
+
 Buffer.concat = function (list, totalLength) {
-  if (!isArray(list)) throw new TypeError('Usage: Buffer.concat(list[, length])')
+  assert(isArray(list), 'Usage: Buffer.concat(list, [totalLength])\n' +
+      'list should be an Array.')
 
   if (list.length === 0) {
     return new Buffer(0)
@@ -1117,7 +178,7 @@ Buffer.concat = function (list, totalLength) {
   }
 
   var i
-  if (totalLength === undefined) {
+  if (typeof totalLength !== 'number') {
     totalLength = 0
     for (i = 0; i < list.length; i++) {
       totalLength += list[i].length
@@ -1134,120 +195,10 @@ Buffer.concat = function (list, totalLength) {
   return buf
 }
 
-Buffer.byteLength = function (str, encoding) {
-  var ret
-  str = str + ''
-  switch (encoding || 'utf8') {
-    case 'ascii':
-    case 'binary':
-    case 'raw':
-      ret = str.length
-      break
-    case 'ucs2':
-    case 'ucs-2':
-    case 'utf16le':
-    case 'utf-16le':
-      ret = str.length * 2
-      break
-    case 'hex':
-      ret = str.length >>> 1
-      break
-    case 'utf8':
-    case 'utf-8':
-      ret = utf8ToBytes(str).length
-      break
-    case 'base64':
-      ret = base64ToBytes(str).length
-      break
-    default:
-      ret = str.length
-  }
-  return ret
-}
+// BUFFER INSTANCE METHODS
+// =======================
 
-// pre-set for values that may exist in the future
-Buffer.prototype.length = undefined
-Buffer.prototype.parent = undefined
-
-// toString(encoding, start=0, end=buffer.length)
-Buffer.prototype.toString = function (encoding, start, end) {
-  var loweredCase = false
-
-  start = start >>> 0
-  end = end === undefined || end === Infinity ? this.length : end >>> 0
-
-  if (!encoding) encoding = 'utf8'
-  if (start < 0) start = 0
-  if (end > this.length) end = this.length
-  if (end <= start) return ''
-
-  while (true) {
-    switch (encoding) {
-      case 'hex':
-        return hexSlice(this, start, end)
-
-      case 'utf8':
-      case 'utf-8':
-        return utf8Slice(this, start, end)
-
-      case 'ascii':
-        return asciiSlice(this, start, end)
-
-      case 'binary':
-        return binarySlice(this, start, end)
-
-      case 'base64':
-        return base64Slice(this, start, end)
-
-      case 'ucs2':
-      case 'ucs-2':
-      case 'utf16le':
-      case 'utf-16le':
-        return utf16leSlice(this, start, end)
-
-      default:
-        if (loweredCase)
-          throw new TypeError('Unknown encoding: ' + encoding)
-        encoding = (encoding + '').toLowerCase()
-        loweredCase = true
-    }
-  }
-}
-
-Buffer.prototype.equals = function (b) {
-  if(!Buffer.isBuffer(b)) throw new TypeError('Argument must be a Buffer')
-  return Buffer.compare(this, b) === 0
-}
-
-Buffer.prototype.inspect = function () {
-  var str = ''
-  var max = exports.INSPECT_MAX_BYTES
-  if (this.length > 0) {
-    str = this.toString('hex', 0, max).match(/.{2}/g).join(' ')
-    if (this.length > max)
-      str += ' ... '
-  }
-  return '<Buffer ' + str + '>'
-}
-
-Buffer.prototype.compare = function (b) {
-  if (!Buffer.isBuffer(b)) throw new TypeError('Argument must be a Buffer')
-  return Buffer.compare(this, b)
-}
-
-// `get` will be removed in Node 0.13+
-Buffer.prototype.get = function (offset) {
-  console.log('.get() is deprecated. Access using array indexes instead.')
-  return this.readUInt8(offset)
-}
-
-// `set` will be removed in Node 0.13+
-Buffer.prototype.set = function (v, offset) {
-  console.log('.set() is deprecated. Access using array indexes instead.')
-  return this.writeUInt8(v, offset)
-}
-
-function hexWrite (buf, string, offset, length) {
+function _hexWrite (buf, string, offset, length) {
   offset = Number(offset) || 0
   var remaining = buf.length - offset
   if (!length) {
@@ -1261,40 +212,45 @@ function hexWrite (buf, string, offset, length) {
 
   // must be an even number of digits
   var strLen = string.length
-  if (strLen % 2 !== 0) throw new Error('Invalid hex string')
+  assert(strLen % 2 === 0, 'Invalid hex string')
 
   if (length > strLen / 2) {
     length = strLen / 2
   }
   for (var i = 0; i < length; i++) {
     var byte = parseInt(string.substr(i * 2, 2), 16)
-    if (isNaN(byte)) throw new Error('Invalid hex string')
+    assert(!isNaN(byte), 'Invalid hex string')
     buf[offset + i] = byte
   }
+  Buffer._charsWritten = i * 2
   return i
 }
 
-function utf8Write (buf, string, offset, length) {
-  var charsWritten = blitBuffer(utf8ToBytes(string), buf, offset, length)
+function _utf8Write (buf, string, offset, length) {
+  var charsWritten = Buffer._charsWritten =
+    blitBuffer(utf8ToBytes(string), buf, offset, length)
   return charsWritten
 }
 
-function asciiWrite (buf, string, offset, length) {
-  var charsWritten = blitBuffer(asciiToBytes(string), buf, offset, length)
+function _asciiWrite (buf, string, offset, length) {
+  var charsWritten = Buffer._charsWritten =
+    blitBuffer(asciiToBytes(string), buf, offset, length)
   return charsWritten
 }
 
-function binaryWrite (buf, string, offset, length) {
-  return asciiWrite(buf, string, offset, length)
+function _binaryWrite (buf, string, offset, length) {
+  return _asciiWrite(buf, string, offset, length)
 }
 
-function base64Write (buf, string, offset, length) {
-  var charsWritten = blitBuffer(base64ToBytes(string), buf, offset, length)
+function _base64Write (buf, string, offset, length) {
+  var charsWritten = Buffer._charsWritten =
+    blitBuffer(base64ToBytes(string), buf, offset, length)
   return charsWritten
 }
 
-function utf16leWrite (buf, string, offset, length) {
-  var charsWritten = blitBuffer(utf16leToBytes(string), buf, offset, length, 2)
+function _utf16leWrite (buf, string, offset, length) {
+  var charsWritten = Buffer._charsWritten =
+    blitBuffer(utf16leToBytes(string), buf, offset, length)
   return charsWritten
 }
 
@@ -1328,29 +284,72 @@ Buffer.prototype.write = function (string, offset, length, encoding) {
   var ret
   switch (encoding) {
     case 'hex':
-      ret = hexWrite(this, string, offset, length)
+      ret = _hexWrite(this, string, offset, length)
       break
     case 'utf8':
     case 'utf-8':
-      ret = utf8Write(this, string, offset, length)
+      ret = _utf8Write(this, string, offset, length)
       break
     case 'ascii':
-      ret = asciiWrite(this, string, offset, length)
+      ret = _asciiWrite(this, string, offset, length)
       break
     case 'binary':
-      ret = binaryWrite(this, string, offset, length)
+      ret = _binaryWrite(this, string, offset, length)
       break
     case 'base64':
-      ret = base64Write(this, string, offset, length)
+      ret = _base64Write(this, string, offset, length)
       break
     case 'ucs2':
     case 'ucs-2':
     case 'utf16le':
     case 'utf-16le':
-      ret = utf16leWrite(this, string, offset, length)
+      ret = _utf16leWrite(this, string, offset, length)
       break
     default:
-      throw new TypeError('Unknown encoding: ' + encoding)
+      throw new Error('Unknown encoding')
+  }
+  return ret
+}
+
+Buffer.prototype.toString = function (encoding, start, end) {
+  var self = this
+
+  encoding = String(encoding || 'utf8').toLowerCase()
+  start = Number(start) || 0
+  end = (end !== undefined)
+    ? Number(end)
+    : end = self.length
+
+  // Fastpath empty strings
+  if (end === start)
+    return ''
+
+  var ret
+  switch (encoding) {
+    case 'hex':
+      ret = _hexSlice(self, start, end)
+      break
+    case 'utf8':
+    case 'utf-8':
+      ret = _utf8Slice(self, start, end)
+      break
+    case 'ascii':
+      ret = _asciiSlice(self, start, end)
+      break
+    case 'binary':
+      ret = _binarySlice(self, start, end)
+      break
+    case 'base64':
+      ret = _base64Slice(self, start, end)
+      break
+    case 'ucs2':
+    case 'ucs-2':
+    case 'utf16le':
+    case 'utf-16le':
+      ret = _utf16leSlice(self, start, end)
+      break
+    default:
+      throw new Error('Unknown encoding')
   }
   return ret
 }
@@ -1362,7 +361,42 @@ Buffer.prototype.toJSON = function () {
   }
 }
 
-function base64Slice (buf, start, end) {
+// copy(targetBuffer, targetStart=0, sourceStart=0, sourceEnd=buffer.length)
+Buffer.prototype.copy = function (target, target_start, start, end) {
+  var source = this
+
+  if (!start) start = 0
+  if (!end && end !== 0) end = this.length
+  if (!target_start) target_start = 0
+
+  // Copy 0 bytes; we're done
+  if (end === start) return
+  if (target.length === 0 || source.length === 0) return
+
+  // Fatal error conditions
+  assert(end >= start, 'sourceEnd < sourceStart')
+  assert(target_start >= 0 && target_start < target.length,
+      'targetStart out of bounds')
+  assert(start >= 0 && start < source.length, 'sourceStart out of bounds')
+  assert(end >= 0 && end <= source.length, 'sourceEnd out of bounds')
+
+  // Are we oob?
+  if (end > this.length)
+    end = this.length
+  if (target.length - target_start < end - start)
+    end = target.length - target_start + start
+
+  var len = end - start
+
+  if (len < 100 || !Buffer._useTypedArrays) {
+    for (var i = 0; i < len; i++)
+      target[i + target_start] = this[i + start]
+  } else {
+    target._set(this.subarray(start, start + len), target_start)
+  }
+}
+
+function _base64Slice (buf, start, end) {
   if (start === 0 && end === buf.length) {
     return base64.fromByteArray(buf)
   } else {
@@ -1370,7 +404,7 @@ function base64Slice (buf, start, end) {
   }
 }
 
-function utf8Slice (buf, start, end) {
+function _utf8Slice (buf, start, end) {
   var res = ''
   var tmp = ''
   end = Math.min(buf.length, end)
@@ -1387,21 +421,20 @@ function utf8Slice (buf, start, end) {
   return res + decodeUtf8Char(tmp)
 }
 
-function asciiSlice (buf, start, end) {
+function _asciiSlice (buf, start, end) {
   var ret = ''
   end = Math.min(buf.length, end)
 
-  for (var i = start; i < end; i++) {
+  for (var i = start; i < end; i++)
     ret += String.fromCharCode(buf[i])
-  }
   return ret
 }
 
-function binarySlice (buf, start, end) {
-  return asciiSlice(buf, start, end)
+function _binarySlice (buf, start, end) {
+  return _asciiSlice(buf, start, end)
 }
 
-function hexSlice (buf, start, end) {
+function _hexSlice (buf, start, end) {
   var len = buf.length
 
   if (!start || start < 0) start = 0
@@ -1414,40 +447,21 @@ function hexSlice (buf, start, end) {
   return out
 }
 
-function utf16leSlice (buf, start, end) {
+function _utf16leSlice (buf, start, end) {
   var bytes = buf.slice(start, end)
   var res = ''
   for (var i = 0; i < bytes.length; i += 2) {
-    res += String.fromCharCode(bytes[i] + bytes[i + 1] * 256)
+    res += String.fromCharCode(bytes[i] + bytes[i+1] * 256)
   }
   return res
 }
 
 Buffer.prototype.slice = function (start, end) {
   var len = this.length
-  start = ~~start
-  end = end === undefined ? len : ~~end
+  start = clamp(start, len, 0)
+  end = clamp(end, len, len)
 
-  if (start < 0) {
-    start += len;
-    if (start < 0)
-      start = 0
-  } else if (start > len) {
-    start = len
-  }
-
-  if (end < 0) {
-    end += len
-    if (end < 0)
-      end = 0
-  } else if (end > len) {
-    end = len
-  }
-
-  if (end < start)
-    end = start
-
-  if (Buffer.TYPED_ARRAY_SUPPORT) {
+  if (Buffer._useTypedArrays) {
     return Buffer._augment(this.subarray(start, end))
   } else {
     var sliceLen = end - start
@@ -1459,336 +473,393 @@ Buffer.prototype.slice = function (start, end) {
   }
 }
 
-/*
- * Need to make sure that buffer isn't trying to write out of bounds.
- */
-function checkOffset (offset, ext, length) {
-  if ((offset % 1) !== 0 || offset < 0)
-    throw new RangeError('offset is not uint')
-  if (offset + ext > length)
-    throw new RangeError('Trying to access beyond buffer length')
+// `get` will be removed in Node 0.13+
+Buffer.prototype.get = function (offset) {
+  console.log('.get() is deprecated. Access using array indexes instead.')
+  return this.readUInt8(offset)
+}
+
+// `set` will be removed in Node 0.13+
+Buffer.prototype.set = function (v, offset) {
+  console.log('.set() is deprecated. Access using array indexes instead.')
+  return this.writeUInt8(v, offset)
 }
 
 Buffer.prototype.readUInt8 = function (offset, noAssert) {
-  if (!noAssert)
-    checkOffset(offset, 1, this.length)
+  if (!noAssert) {
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset < this.length, 'Trying to read beyond buffer length')
+  }
+
+  if (offset >= this.length)
+    return
+
   return this[offset]
 }
 
+function _readUInt16 (buf, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset + 1 < buf.length, 'Trying to read beyond buffer length')
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  var val
+  if (littleEndian) {
+    val = buf[offset]
+    if (offset + 1 < len)
+      val |= buf[offset + 1] << 8
+  } else {
+    val = buf[offset] << 8
+    if (offset + 1 < len)
+      val |= buf[offset + 1]
+  }
+  return val
+}
+
 Buffer.prototype.readUInt16LE = function (offset, noAssert) {
-  if (!noAssert)
-    checkOffset(offset, 2, this.length)
-  return this[offset] | (this[offset + 1] << 8)
+  return _readUInt16(this, offset, true, noAssert)
 }
 
 Buffer.prototype.readUInt16BE = function (offset, noAssert) {
-  if (!noAssert)
-    checkOffset(offset, 2, this.length)
-  return (this[offset] << 8) | this[offset + 1]
+  return _readUInt16(this, offset, false, noAssert)
+}
+
+function _readUInt32 (buf, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset + 3 < buf.length, 'Trying to read beyond buffer length')
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  var val
+  if (littleEndian) {
+    if (offset + 2 < len)
+      val = buf[offset + 2] << 16
+    if (offset + 1 < len)
+      val |= buf[offset + 1] << 8
+    val |= buf[offset]
+    if (offset + 3 < len)
+      val = val + (buf[offset + 3] << 24 >>> 0)
+  } else {
+    if (offset + 1 < len)
+      val = buf[offset + 1] << 16
+    if (offset + 2 < len)
+      val |= buf[offset + 2] << 8
+    if (offset + 3 < len)
+      val |= buf[offset + 3]
+    val = val + (buf[offset] << 24 >>> 0)
+  }
+  return val
 }
 
 Buffer.prototype.readUInt32LE = function (offset, noAssert) {
-  if (!noAssert)
-    checkOffset(offset, 4, this.length)
-
-  return ((this[offset]) |
-      (this[offset + 1] << 8) |
-      (this[offset + 2] << 16)) +
-      (this[offset + 3] * 0x1000000)
+  return _readUInt32(this, offset, true, noAssert)
 }
 
 Buffer.prototype.readUInt32BE = function (offset, noAssert) {
-  if (!noAssert)
-    checkOffset(offset, 4, this.length)
-
-  return (this[offset] * 0x1000000) +
-      ((this[offset + 1] << 16) |
-      (this[offset + 2] << 8) |
-      this[offset + 3])
+  return _readUInt32(this, offset, false, noAssert)
 }
 
 Buffer.prototype.readInt8 = function (offset, noAssert) {
-  if (!noAssert)
-    checkOffset(offset, 1, this.length)
-  if (!(this[offset] & 0x80))
-    return (this[offset])
-  return ((0xff - this[offset] + 1) * -1)
+  if (!noAssert) {
+    assert(offset !== undefined && offset !== null,
+        'missing offset')
+    assert(offset < this.length, 'Trying to read beyond buffer length')
+  }
+
+  if (offset >= this.length)
+    return
+
+  var neg = this[offset] & 0x80
+  if (neg)
+    return (0xff - this[offset] + 1) * -1
+  else
+    return this[offset]
+}
+
+function _readInt16 (buf, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset + 1 < buf.length, 'Trying to read beyond buffer length')
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  var val = _readUInt16(buf, offset, littleEndian, true)
+  var neg = val & 0x8000
+  if (neg)
+    return (0xffff - val + 1) * -1
+  else
+    return val
 }
 
 Buffer.prototype.readInt16LE = function (offset, noAssert) {
-  if (!noAssert)
-    checkOffset(offset, 2, this.length)
-  var val = this[offset] | (this[offset + 1] << 8)
-  return (val & 0x8000) ? val | 0xFFFF0000 : val
+  return _readInt16(this, offset, true, noAssert)
 }
 
 Buffer.prototype.readInt16BE = function (offset, noAssert) {
-  if (!noAssert)
-    checkOffset(offset, 2, this.length)
-  var val = this[offset + 1] | (this[offset] << 8)
-  return (val & 0x8000) ? val | 0xFFFF0000 : val
+  return _readInt16(this, offset, false, noAssert)
+}
+
+function _readInt32 (buf, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset + 3 < buf.length, 'Trying to read beyond buffer length')
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  var val = _readUInt32(buf, offset, littleEndian, true)
+  var neg = val & 0x80000000
+  if (neg)
+    return (0xffffffff - val + 1) * -1
+  else
+    return val
 }
 
 Buffer.prototype.readInt32LE = function (offset, noAssert) {
-  if (!noAssert)
-    checkOffset(offset, 4, this.length)
-
-  return (this[offset]) |
-      (this[offset + 1] << 8) |
-      (this[offset + 2] << 16) |
-      (this[offset + 3] << 24)
+  return _readInt32(this, offset, true, noAssert)
 }
 
 Buffer.prototype.readInt32BE = function (offset, noAssert) {
-  if (!noAssert)
-    checkOffset(offset, 4, this.length)
+  return _readInt32(this, offset, false, noAssert)
+}
 
-  return (this[offset] << 24) |
-      (this[offset + 1] << 16) |
-      (this[offset + 2] << 8) |
-      (this[offset + 3])
+function _readFloat (buf, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset + 3 < buf.length, 'Trying to read beyond buffer length')
+  }
+
+  return ieee754.read(buf, offset, littleEndian, 23, 4)
 }
 
 Buffer.prototype.readFloatLE = function (offset, noAssert) {
-  if (!noAssert)
-    checkOffset(offset, 4, this.length)
-  return ieee754.read(this, offset, true, 23, 4)
+  return _readFloat(this, offset, true, noAssert)
 }
 
 Buffer.prototype.readFloatBE = function (offset, noAssert) {
-  if (!noAssert)
-    checkOffset(offset, 4, this.length)
-  return ieee754.read(this, offset, false, 23, 4)
+  return _readFloat(this, offset, false, noAssert)
+}
+
+function _readDouble (buf, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset + 7 < buf.length, 'Trying to read beyond buffer length')
+  }
+
+  return ieee754.read(buf, offset, littleEndian, 52, 8)
 }
 
 Buffer.prototype.readDoubleLE = function (offset, noAssert) {
-  if (!noAssert)
-    checkOffset(offset, 8, this.length)
-  return ieee754.read(this, offset, true, 52, 8)
+  return _readDouble(this, offset, true, noAssert)
 }
 
 Buffer.prototype.readDoubleBE = function (offset, noAssert) {
-  if (!noAssert)
-    checkOffset(offset, 8, this.length)
-  return ieee754.read(this, offset, false, 52, 8)
-}
-
-function checkInt (buf, value, offset, ext, max, min) {
-  if (!Buffer.isBuffer(buf)) throw new TypeError('buffer must be a Buffer instance')
-  if (value > max || value < min) throw new TypeError('value is out of bounds')
-  if (offset + ext > buf.length) throw new TypeError('index out of range')
+  return _readDouble(this, offset, false, noAssert)
 }
 
 Buffer.prototype.writeUInt8 = function (value, offset, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert)
-    checkInt(this, value, offset, 1, 0xff, 0)
-  if (!Buffer.TYPED_ARRAY_SUPPORT) value = Math.floor(value)
+  if (!noAssert) {
+    assert(value !== undefined && value !== null, 'missing value')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset < this.length, 'trying to write beyond buffer length')
+    verifuint(value, 0xff)
+  }
+
+  if (offset >= this.length) return
+
   this[offset] = value
-  return offset + 1
 }
 
-function objectWriteUInt16 (buf, value, offset, littleEndian) {
-  if (value < 0) value = 0xffff + value + 1
-  for (var i = 0, j = Math.min(buf.length - offset, 2); i < j; i++) {
-    buf[offset + i] = (value & (0xff << (8 * (littleEndian ? i : 1 - i)))) >>>
-      (littleEndian ? i : 1 - i) * 8
+function _writeUInt16 (buf, value, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(value !== undefined && value !== null, 'missing value')
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset + 1 < buf.length, 'trying to write beyond buffer length')
+    verifuint(value, 0xffff)
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  for (var i = 0, j = Math.min(len - offset, 2); i < j; i++) {
+    buf[offset + i] =
+        (value & (0xff << (8 * (littleEndian ? i : 1 - i)))) >>>
+            (littleEndian ? i : 1 - i) * 8
   }
 }
 
 Buffer.prototype.writeUInt16LE = function (value, offset, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert)
-    checkInt(this, value, offset, 2, 0xffff, 0)
-  if (Buffer.TYPED_ARRAY_SUPPORT) {
-    this[offset] = value
-    this[offset + 1] = (value >>> 8)
-  } else objectWriteUInt16(this, value, offset, true)
-  return offset + 2
+  _writeUInt16(this, value, offset, true, noAssert)
 }
 
 Buffer.prototype.writeUInt16BE = function (value, offset, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert)
-    checkInt(this, value, offset, 2, 0xffff, 0)
-  if (Buffer.TYPED_ARRAY_SUPPORT) {
-    this[offset] = (value >>> 8)
-    this[offset + 1] = value
-  } else objectWriteUInt16(this, value, offset, false)
-  return offset + 2
+  _writeUInt16(this, value, offset, false, noAssert)
 }
 
-function objectWriteUInt32 (buf, value, offset, littleEndian) {
-  if (value < 0) value = 0xffffffff + value + 1
-  for (var i = 0, j = Math.min(buf.length - offset, 4); i < j; i++) {
-    buf[offset + i] = (value >>> (littleEndian ? i : 3 - i) * 8) & 0xff
+function _writeUInt32 (buf, value, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(value !== undefined && value !== null, 'missing value')
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset + 3 < buf.length, 'trying to write beyond buffer length')
+    verifuint(value, 0xffffffff)
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  for (var i = 0, j = Math.min(len - offset, 4); i < j; i++) {
+    buf[offset + i] =
+        (value >>> (littleEndian ? i : 3 - i) * 8) & 0xff
   }
 }
 
 Buffer.prototype.writeUInt32LE = function (value, offset, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert)
-    checkInt(this, value, offset, 4, 0xffffffff, 0)
-  if (Buffer.TYPED_ARRAY_SUPPORT) {
-    this[offset + 3] = (value >>> 24)
-    this[offset + 2] = (value >>> 16)
-    this[offset + 1] = (value >>> 8)
-    this[offset] = value
-  } else objectWriteUInt32(this, value, offset, true)
-  return offset + 4
+  _writeUInt32(this, value, offset, true, noAssert)
 }
 
 Buffer.prototype.writeUInt32BE = function (value, offset, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert)
-    checkInt(this, value, offset, 4, 0xffffffff, 0)
-  if (Buffer.TYPED_ARRAY_SUPPORT) {
-    this[offset] = (value >>> 24)
-    this[offset + 1] = (value >>> 16)
-    this[offset + 2] = (value >>> 8)
-    this[offset + 3] = value
-  } else objectWriteUInt32(this, value, offset, false)
-  return offset + 4
+  _writeUInt32(this, value, offset, false, noAssert)
 }
 
 Buffer.prototype.writeInt8 = function (value, offset, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert)
-    checkInt(this, value, offset, 1, 0x7f, -0x80)
-  if (!Buffer.TYPED_ARRAY_SUPPORT) value = Math.floor(value)
-  if (value < 0) value = 0xff + value + 1
-  this[offset] = value
-  return offset + 1
+  if (!noAssert) {
+    assert(value !== undefined && value !== null, 'missing value')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset < this.length, 'Trying to write beyond buffer length')
+    verifsint(value, 0x7f, -0x80)
+  }
+
+  if (offset >= this.length)
+    return
+
+  if (value >= 0)
+    this.writeUInt8(value, offset, noAssert)
+  else
+    this.writeUInt8(0xff + value + 1, offset, noAssert)
+}
+
+function _writeInt16 (buf, value, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(value !== undefined && value !== null, 'missing value')
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset + 1 < buf.length, 'Trying to write beyond buffer length')
+    verifsint(value, 0x7fff, -0x8000)
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  if (value >= 0)
+    _writeUInt16(buf, value, offset, littleEndian, noAssert)
+  else
+    _writeUInt16(buf, 0xffff + value + 1, offset, littleEndian, noAssert)
 }
 
 Buffer.prototype.writeInt16LE = function (value, offset, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert)
-    checkInt(this, value, offset, 2, 0x7fff, -0x8000)
-  if (Buffer.TYPED_ARRAY_SUPPORT) {
-    this[offset] = value
-    this[offset + 1] = (value >>> 8)
-  } else objectWriteUInt16(this, value, offset, true)
-  return offset + 2
+  _writeInt16(this, value, offset, true, noAssert)
 }
 
 Buffer.prototype.writeInt16BE = function (value, offset, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert)
-    checkInt(this, value, offset, 2, 0x7fff, -0x8000)
-  if (Buffer.TYPED_ARRAY_SUPPORT) {
-    this[offset] = (value >>> 8)
-    this[offset + 1] = value
-  } else objectWriteUInt16(this, value, offset, false)
-  return offset + 2
+  _writeInt16(this, value, offset, false, noAssert)
+}
+
+function _writeInt32 (buf, value, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(value !== undefined && value !== null, 'missing value')
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset + 3 < buf.length, 'Trying to write beyond buffer length')
+    verifsint(value, 0x7fffffff, -0x80000000)
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
+  if (value >= 0)
+    _writeUInt32(buf, value, offset, littleEndian, noAssert)
+  else
+    _writeUInt32(buf, 0xffffffff + value + 1, offset, littleEndian, noAssert)
 }
 
 Buffer.prototype.writeInt32LE = function (value, offset, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert)
-    checkInt(this, value, offset, 4, 0x7fffffff, -0x80000000)
-  if (Buffer.TYPED_ARRAY_SUPPORT) {
-    this[offset] = value
-    this[offset + 1] = (value >>> 8)
-    this[offset + 2] = (value >>> 16)
-    this[offset + 3] = (value >>> 24)
-  } else objectWriteUInt32(this, value, offset, true)
-  return offset + 4
+  _writeInt32(this, value, offset, true, noAssert)
 }
 
 Buffer.prototype.writeInt32BE = function (value, offset, noAssert) {
-  value = +value
-  offset = offset >>> 0
-  if (!noAssert)
-    checkInt(this, value, offset, 4, 0x7fffffff, -0x80000000)
-  if (value < 0) value = 0xffffffff + value + 1
-  if (Buffer.TYPED_ARRAY_SUPPORT) {
-    this[offset] = (value >>> 24)
-    this[offset + 1] = (value >>> 16)
-    this[offset + 2] = (value >>> 8)
-    this[offset + 3] = value
-  } else objectWriteUInt32(this, value, offset, false)
-  return offset + 4
+  _writeInt32(this, value, offset, false, noAssert)
 }
 
-function checkIEEE754 (buf, value, offset, ext, max, min) {
-  if (value > max || value < min) throw new TypeError('value is out of bounds')
-  if (offset + ext > buf.length) throw new TypeError('index out of range')
-}
+function _writeFloat (buf, value, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(value !== undefined && value !== null, 'missing value')
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset + 3 < buf.length, 'Trying to write beyond buffer length')
+    verifIEEE754(value, 3.4028234663852886e+38, -3.4028234663852886e+38)
+  }
 
-function writeFloat (buf, value, offset, littleEndian, noAssert) {
-  if (!noAssert)
-    checkIEEE754(buf, value, offset, 4, 3.4028234663852886e+38, -3.4028234663852886e+38)
+  var len = buf.length
+  if (offset >= len)
+    return
+
   ieee754.write(buf, value, offset, littleEndian, 23, 4)
-  return offset + 4
 }
 
 Buffer.prototype.writeFloatLE = function (value, offset, noAssert) {
-  return writeFloat(this, value, offset, true, noAssert)
+  _writeFloat(this, value, offset, true, noAssert)
 }
 
 Buffer.prototype.writeFloatBE = function (value, offset, noAssert) {
-  return writeFloat(this, value, offset, false, noAssert)
+  _writeFloat(this, value, offset, false, noAssert)
 }
 
-function writeDouble (buf, value, offset, littleEndian, noAssert) {
-  if (!noAssert)
-    checkIEEE754(buf, value, offset, 8, 1.7976931348623157E+308, -1.7976931348623157E+308)
+function _writeDouble (buf, value, offset, littleEndian, noAssert) {
+  if (!noAssert) {
+    assert(value !== undefined && value !== null, 'missing value')
+    assert(typeof littleEndian === 'boolean', 'missing or invalid endian')
+    assert(offset !== undefined && offset !== null, 'missing offset')
+    assert(offset + 7 < buf.length,
+        'Trying to write beyond buffer length')
+    verifIEEE754(value, 1.7976931348623157E+308, -1.7976931348623157E+308)
+  }
+
+  var len = buf.length
+  if (offset >= len)
+    return
+
   ieee754.write(buf, value, offset, littleEndian, 52, 8)
-  return offset + 8
 }
 
 Buffer.prototype.writeDoubleLE = function (value, offset, noAssert) {
-  return writeDouble(this, value, offset, true, noAssert)
+  _writeDouble(this, value, offset, true, noAssert)
 }
 
 Buffer.prototype.writeDoubleBE = function (value, offset, noAssert) {
-  return writeDouble(this, value, offset, false, noAssert)
-}
-
-// copy(targetBuffer, targetStart=0, sourceStart=0, sourceEnd=buffer.length)
-Buffer.prototype.copy = function (target, target_start, start, end) {
-  var source = this
-
-  if (!start) start = 0
-  if (!end && end !== 0) end = this.length
-  if (!target_start) target_start = 0
-
-  // Copy 0 bytes; we're done
-  if (end === start) return
-  if (target.length === 0 || source.length === 0) return
-
-  // Fatal error conditions
-  if (end < start) throw new TypeError('sourceEnd < sourceStart')
-  if (target_start < 0 || target_start >= target.length)
-    throw new TypeError('targetStart out of bounds')
-  if (start < 0 || start >= source.length) throw new TypeError('sourceStart out of bounds')
-  if (end < 0 || end > source.length) throw new TypeError('sourceEnd out of bounds')
-
-  // Are we oob?
-  if (end > this.length)
-    end = this.length
-  if (target.length - target_start < end - start)
-    end = target.length - target_start + start
-
-  var len = end - start
-
-  if (len < 1000 || !Buffer.TYPED_ARRAY_SUPPORT) {
-    for (var i = 0; i < len; i++) {
-      target[i + target_start] = this[i + start]
-    }
-  } else {
-    target._set(this.subarray(start, start + len), target_start)
-  }
+  _writeDouble(this, value, offset, false, noAssert)
 }
 
 // fill(value, start=0, end=buffer.length)
@@ -1797,29 +868,36 @@ Buffer.prototype.fill = function (value, start, end) {
   if (!start) start = 0
   if (!end) end = this.length
 
-  if (end < start) throw new TypeError('end < start')
+  if (typeof value === 'string') {
+    value = value.charCodeAt(0)
+  }
+
+  assert(typeof value === 'number' && !isNaN(value), 'value is not a number')
+  assert(end >= start, 'end < start')
 
   // Fill 0 bytes; we're done
   if (end === start) return
   if (this.length === 0) return
 
-  if (start < 0 || start >= this.length) throw new TypeError('start out of bounds')
-  if (end < 0 || end > this.length) throw new TypeError('end out of bounds')
+  assert(start >= 0 && start < this.length, 'start out of bounds')
+  assert(end >= 0 && end <= this.length, 'end out of bounds')
 
-  var i
-  if (typeof value === 'number') {
-    for (i = start; i < end; i++) {
-      this[i] = value
-    }
-  } else {
-    var bytes = utf8ToBytes(value.toString())
-    var len = bytes.length
-    for (i = start; i < end; i++) {
-      this[i] = bytes[i % len]
+  for (var i = start; i < end; i++) {
+    this[i] = value
+  }
+}
+
+Buffer.prototype.inspect = function () {
+  var out = []
+  var len = this.length
+  for (var i = 0; i < len; i++) {
+    out[i] = toHex(this[i])
+    if (i === exports.INSPECT_MAX_BYTES) {
+      out[i + 1] = '...'
+      break
     }
   }
-
-  return this
+  return '<Buffer ' + out.join(' ') + '>'
 }
 
 /**
@@ -1828,22 +906,26 @@ Buffer.prototype.fill = function (value, start, end) {
  */
 Buffer.prototype.toArrayBuffer = function () {
   if (typeof Uint8Array !== 'undefined') {
-    if (Buffer.TYPED_ARRAY_SUPPORT) {
+    if (Buffer._useTypedArrays) {
       return (new Buffer(this)).buffer
     } else {
       var buf = new Uint8Array(this.length)
-      for (var i = 0, len = buf.length; i < len; i += 1) {
+      for (var i = 0, len = buf.length; i < len; i += 1)
         buf[i] = this[i]
-      }
       return buf.buffer
     }
   } else {
-    throw new TypeError('Buffer.toArrayBuffer not supported in this browser')
+    throw new Error('Buffer.toArrayBuffer not supported in this browser')
   }
 }
 
 // HELPER FUNCTIONS
 // ================
+
+function stringtrim (str) {
+  if (str.trim) return str.trim()
+  return str.replace(/^\s+|\s+$/g, '')
+}
 
 var BP = Buffer.prototype
 
@@ -1851,7 +933,6 @@ var BP = Buffer.prototype
  * Augment a Uint8Array *instance* (not the Uint8Array class!) with Buffer methods
  */
 Buffer._augment = function (arr) {
-  arr.constructor = Buffer
   arr._isBuffer = true
 
   // save reference to original Uint8Array get/set methods before overwriting
@@ -1866,8 +947,6 @@ Buffer._augment = function (arr) {
   arr.toString = BP.toString
   arr.toLocaleString = BP.toString
   arr.toJSON = BP.toJSON
-  arr.equals = BP.equals
-  arr.compare = BP.compare
   arr.copy = BP.copy
   arr.slice = BP.slice
   arr.readUInt8 = BP.readUInt8
@@ -1905,21 +984,29 @@ Buffer._augment = function (arr) {
   return arr
 }
 
-var INVALID_BASE64_RE = /[^+\/0-9A-z]/g
-
-function base64clean (str) {
-  // Node strips out invalid characters like \n and \t from the string, base64-js does not
-  str = stringtrim(str).replace(INVALID_BASE64_RE, '')
-  // Node allows for non-padded base64 strings (missing trailing ===), base64-js does not
-  while (str.length % 4 !== 0) {
-    str = str + '='
-  }
-  return str
+// slice(start, end)
+function clamp (index, len, defaultValue) {
+  if (typeof index !== 'number') return defaultValue
+  index = ~~index;  // Coerce to integer.
+  if (index >= len) return len
+  if (index >= 0) return index
+  index += len
+  if (index >= 0) return index
+  return 0
 }
 
-function stringtrim (str) {
-  if (str.trim) return str.trim()
-  return str.replace(/^\s+|\s+$/g, '')
+function coerce (length) {
+  // Coerce length to a number (possibly NaN), round up
+  // in case it's fractional (e.g. 123.456) then do a
+  // double negate to coerce a NaN to 0. Easy, right?
+  length = ~~Math.ceil(+length)
+  return length < 0 ? 0 : length
+}
+
+function isArray (subject) {
+  return (Array.isArray || function (subject) {
+    return Object.prototype.toString.call(subject) === '[object Array]'
+  })(subject)
 }
 
 function isArrayish (subject) {
@@ -1937,15 +1024,14 @@ function utf8ToBytes (str) {
   var byteArray = []
   for (var i = 0; i < str.length; i++) {
     var b = str.charCodeAt(i)
-    if (b <= 0x7F) {
-      byteArray.push(b)
-    } else {
+    if (b <= 0x7F)
+      byteArray.push(str.charCodeAt(i))
+    else {
       var start = i
       if (b >= 0xD800 && b <= 0xDFFF) i++
       var h = encodeURIComponent(str.slice(start, i+1)).substr(1).split('%')
-      for (var j = 0; j < h.length; j++) {
+      for (var j = 0; j < h.length; j++)
         byteArray.push(parseInt(h[j], 16))
-      }
     }
   }
   return byteArray
@@ -1978,8 +1064,8 @@ function base64ToBytes (str) {
   return base64.toByteArray(str)
 }
 
-function blitBuffer (src, dst, offset, length, unitSize) {
-  if (unitSize) length -= length % unitSize;
+function blitBuffer (src, dst, offset, length) {
+  var pos
   for (var i = 0; i < length; i++) {
     if ((i + offset >= dst.length) || (i >= src.length))
       break
@@ -1996,7 +1082,36 @@ function decodeUtf8Char (str) {
   }
 }
 
-},{"base64-js":4,"ieee754":5,"is-array":6}],4:[function(require,module,exports){
+/*
+ * We have to make sure that the value is a valid integer. This means that it
+ * is non-negative. It has no fractional component and that it does not
+ * exceed the maximum allowed value.
+ */
+function verifuint (value, max) {
+  assert(typeof value === 'number', 'cannot write a non-number as a number')
+  assert(value >= 0, 'specified a negative value for writing an unsigned value')
+  assert(value <= max, 'value is larger than maximum value for type')
+  assert(Math.floor(value) === value, 'value has a fractional component')
+}
+
+function verifsint (value, max, min) {
+  assert(typeof value === 'number', 'cannot write a non-number as a number')
+  assert(value <= max, 'value larger than maximum allowed value')
+  assert(value >= min, 'value smaller than minimum allowed value')
+  assert(Math.floor(value) === value, 'value has a fractional component')
+}
+
+function verifIEEE754 (value, max, min) {
+  assert(typeof value === 'number', 'cannot write a non-number as a number')
+  assert(value <= max, 'value larger than maximum allowed value')
+  assert(value >= min, 'value smaller than minimum allowed value')
+}
+
+function assert (test, message) {
+  if (!test) throw new Error(message || 'Failed assertion')
+}
+
+},{"base64-js":3,"ieee754":4}],3:[function(_dereq_,module,exports){
 var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 ;(function (exports) {
@@ -2011,12 +1126,16 @@ var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 	var NUMBER = '0'.charCodeAt(0)
 	var LOWER  = 'a'.charCodeAt(0)
 	var UPPER  = 'A'.charCodeAt(0)
+	var PLUS_URL_SAFE = '-'.charCodeAt(0)
+	var SLASH_URL_SAFE = '_'.charCodeAt(0)
 
 	function decode (elt) {
 		var code = elt.charCodeAt(0)
-		if (code === PLUS)
+		if (code === PLUS ||
+		    code === PLUS_URL_SAFE)
 			return 62 // '+'
-		if (code === SLASH)
+		if (code === SLASH ||
+		    code === SLASH_URL_SAFE)
 			return 63 // '/'
 		if (code < NUMBER)
 			return -1 //no match
@@ -2118,7 +1237,7 @@ var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 	exports.fromByteArray = uint8ToBase64
 }(typeof exports === 'undefined' ? (this.base64js = {}) : exports))
 
-},{}],5:[function(require,module,exports){
+},{}],4:[function(_dereq_,module,exports){
 exports.read = function(buffer, offset, isLE, mLen, nBytes) {
   var e, m,
       eLen = nBytes * 8 - mLen - 1,
@@ -2204,42 +1323,7 @@ exports.write = function(buffer, value, offset, isLE, mLen, nBytes) {
   buffer[offset + i - d] |= s * 128;
 };
 
-},{}],6:[function(require,module,exports){
-
-/**
- * isArray
- */
-
-var isArray = Array.isArray;
-
-/**
- * toString
- */
-
-var str = Object.prototype.toString;
-
-/**
- * Whether or not the given `val`
- * is an array.
- *
- * example:
- *
- *        isArray([]);
- *        // > true
- *        isArray(arguments);
- *        // > false
- *        isArray('');
- *        // > false
- *
- * @param {mixed} val
- * @return {bool}
- */
-
-module.exports = isArray || function (val) {
-  return !! val && '[object Array]' == str.call(val);
-};
-
-},{}],7:[function(require,module,exports){
+},{}],5:[function(_dereq_,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -2542,11 +1626,11 @@ function isUndefined(arg) {
   return arg === void 0;
 }
 
-},{}],8:[function(require,module,exports){
+},{}],6:[function(_dereq_,module,exports){
 var http = module.exports;
-var EventEmitter = require('events').EventEmitter;
-var Request = require('./lib/request');
-var url = require('url')
+var EventEmitter = _dereq_('events').EventEmitter;
+var Request = _dereq_('./lib/request');
+var url = _dereq_('url')
 
 http.request = function (params, cb) {
     if (typeof params === 'string') {
@@ -2559,15 +1643,8 @@ http.request = function (params, cb) {
     if (!params.host && params.hostname) {
         params.host = params.hostname;
     }
-
-    if (!params.protocol) {
-        if (params.scheme) {
-            params.protocol = params.scheme + ':';
-        } else {
-            params.protocol = window.location.protocol;
-        }
-    }
-
+    
+    if (!params.scheme) params.scheme = window.location.protocol.split(':')[0];
     if (!params.host) {
         params.host = window.location.hostname || window.location.host;
     }
@@ -2577,7 +1654,7 @@ http.request = function (params, cb) {
         }
         params.host = params.host.split(':')[0];
     }
-    if (!params.port) params.port = params.protocol == 'https:' ? 443 : 80;
+    if (!params.port) params.port = params.scheme == 'https' ? 443 : 80;
     
     var req = new Request(new xhrHttp, params);
     if (cb) req.on('response', cb);
@@ -2688,11 +1765,11 @@ http.STATUS_CODES = {
     510 : 'Not Extended',               // RFC 2774
     511 : 'Network Authentication Required' // RFC 6585
 };
-},{"./lib/request":9,"events":7,"url":36}],9:[function(require,module,exports){
-var Stream = require('stream');
-var Response = require('./response');
-var Base64 = require('Base64');
-var inherits = require('inherits');
+},{"./lib/request":7,"events":5,"url":28}],7:[function(_dereq_,module,exports){
+var Stream = _dereq_('stream');
+var Response = _dereq_('./response');
+var Base64 = _dereq_('Base64');
+var inherits = _dereq_('inherits');
 
 var Request = module.exports = function (xhr, params) {
     var self = this;
@@ -2700,7 +1777,7 @@ var Request = module.exports = function (xhr, params) {
     self.xhr = xhr;
     self.body = [];
     
-    self.uri = (params.protocol || 'http:') + '//'
+    self.uri = (params.scheme || 'http') + '://'
         + params.host
         + (params.port ? ':' + params.port : '')
         + (params.path || '/')
@@ -2713,18 +1790,11 @@ var Request = module.exports = function (xhr, params) {
     try { xhr.withCredentials = params.withCredentials }
     catch (e) {}
     
-    if (params.responseType) try { xhr.responseType = params.responseType }
-    catch (e) {}
-    
     xhr.open(
         params.method || 'GET',
         self.uri,
         true
     );
-
-    xhr.onerror = function(event) {
-        self.emit('error', new Error('Network error'));
-    };
 
     self._headers = {};
     
@@ -2750,10 +1820,6 @@ var Request = module.exports = function (xhr, params) {
     
     res.on('ready', function () {
         self.emit('response', res);
-    });
-
-    res.on('error', function (err) {
-        self.emit('error', err);
     });
     
     xhr.onreadystatechange = function () {
@@ -2833,9 +1899,6 @@ Request.prototype.end = function (s) {
         }
         this.xhr.send(body);
     }
-    else if (isXHR2Compatible(this.body[0])) {
-        this.xhr.send(this.body[0]);
-    }
     else {
         var body = '';
         for (var i = 0; i < this.body.length; i++) {
@@ -2893,15 +1956,9 @@ var indexOf = function (xs, x) {
     return -1;
 };
 
-var isXHR2Compatible = function (obj) {
-    if (typeof Blob !== 'undefined' && obj instanceof Blob) return true;
-    if (typeof ArrayBuffer !== 'undefined' && obj instanceof ArrayBuffer) return true;
-    if (typeof FormData !== 'undefined' && obj instanceof FormData) return true;
-};
-
-},{"./response":10,"Base64":11,"inherits":13,"stream":32}],10:[function(require,module,exports){
-var Stream = require('stream');
-var util = require('util');
+},{"./response":8,"Base64":9,"inherits":11,"stream":19}],8:[function(_dereq_,module,exports){
+var Stream = _dereq_('stream');
+var util = _dereq_('util');
 
 var Response = module.exports = function (res) {
     this.offset = 0;
@@ -3021,7 +2078,7 @@ var isArray = Array.isArray || function (xs) {
     return Object.prototype.toString.call(xs) === '[object Array]';
 };
 
-},{"stream":32,"util":38}],11:[function(require,module,exports){
+},{"stream":19,"util":30}],9:[function(_dereq_,module,exports){
 ;(function () {
 
   var object = typeof exports != 'undefined' ? exports : this; // #8: web workers
@@ -3083,8 +2140,8 @@ var isArray = Array.isArray || function (xs) {
 
 }());
 
-},{}],12:[function(require,module,exports){
-var http = require('http');
+},{}],10:[function(_dereq_,module,exports){
+var http = _dereq_('http');
 
 var https = module.exports;
 
@@ -3098,7 +2155,7 @@ https.request = function (params, cb) {
     return http.request.call(this, params, cb);
 }
 
-},{"http":8}],13:[function(require,module,exports){
+},{"http":6}],11:[function(_dereq_,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -3123,12 +2180,7 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],14:[function(require,module,exports){
-module.exports = Array.isArray || function (arr) {
-  return Object.prototype.toString.call(arr) == '[object Array]';
-};
-
-},{}],15:[function(require,module,exports){
+},{}],12:[function(_dereq_,module,exports){
 (function (process){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -3355,8 +2407,8 @@ var substr = 'ab'.substr(-1) === 'b'
     }
 ;
 
-}).call(this,require('_process'))
-},{"_process":16}],16:[function(require,module,exports){
+}).call(this,_dereq_("1YiZ5S"))
+},{"1YiZ5S":13}],13:[function(_dereq_,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -3364,8 +2416,6 @@ var process = module.exports = {};
 process.nextTick = (function () {
     var canSetImmediate = typeof window !== 'undefined'
     && window.setImmediate;
-    var canMutationObserver = typeof window !== 'undefined'
-    && window.MutationObserver;
     var canPost = typeof window !== 'undefined'
     && window.postMessage && window.addEventListener
     ;
@@ -3374,29 +2424,8 @@ process.nextTick = (function () {
         return function (f) { return window.setImmediate(f) };
     }
 
-    var queue = [];
-
-    if (canMutationObserver) {
-        var hiddenDiv = document.createElement("div");
-        var observer = new MutationObserver(function () {
-            var queueList = queue.slice();
-            queue.length = 0;
-            queueList.forEach(function (fn) {
-                fn();
-            });
-        });
-
-        observer.observe(hiddenDiv, { attributes: true });
-
-        return function nextTick(fn) {
-            if (!queue.length) {
-                hiddenDiv.setAttribute('yes', 'no');
-            }
-            queue.push(fn);
-        };
-    }
-
     if (canPost) {
+        var queue = [];
         window.addEventListener('message', function (ev) {
             var source = ev.source;
             if ((source === window || source === null) && ev.data === 'process-tick') {
@@ -3436,7 +2465,7 @@ process.emit = noop;
 
 process.binding = function (name) {
     throw new Error('process.binding is not supported');
-};
+}
 
 // TODO(shtylman)
 process.cwd = function () { return '/' };
@@ -3444,7 +2473,7 @@ process.chdir = function (dir) {
     throw new Error('process.chdir is not supported');
 };
 
-},{}],17:[function(require,module,exports){
+},{}],14:[function(_dereq_,module,exports){
 (function (global){
 /*! http://mths.be/punycode v1.2.4 by @mathias */
 ;(function(root) {
@@ -3954,8 +2983,8 @@ process.chdir = function (dir) {
 
 }(this));
 
-}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],18:[function(require,module,exports){
+}).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{}],15:[function(_dereq_,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -4041,7 +3070,7 @@ var isArray = Array.isArray || function (xs) {
   return Object.prototype.toString.call(xs) === '[object Array]';
 };
 
-},{}],19:[function(require,module,exports){
+},{}],16:[function(_dereq_,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -4092,7 +3121,7 @@ module.exports = function(obj, sep, eq, name) {
     return map(objectKeys(obj), function(k) {
       var ks = encodeURIComponent(stringifyPrimitive(k)) + eq;
       if (isArray(obj[k])) {
-        return map(obj[k], function(v) {
+        return obj[k].map(function(v) {
           return ks + encodeURIComponent(stringifyPrimitive(v));
         }).join(sep);
       } else {
@@ -4128,17 +3157,13 @@ var objectKeys = Object.keys || function (obj) {
   return res;
 };
 
-},{}],20:[function(require,module,exports){
+},{}],17:[function(_dereq_,module,exports){
 'use strict';
 
-exports.decode = exports.parse = require('./decode');
-exports.encode = exports.stringify = require('./encode');
+exports.decode = exports.parse = _dereq_('./decode');
+exports.encode = exports.stringify = _dereq_('./encode');
 
-},{"./decode":18,"./encode":19}],21:[function(require,module,exports){
-module.exports = require("./lib/_stream_duplex.js")
-
-},{"./lib/_stream_duplex.js":22}],22:[function(require,module,exports){
-(function (process){
+},{"./decode":15,"./encode":16}],18:[function(_dereq_,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -4166,30 +3191,16 @@ module.exports = require("./lib/_stream_duplex.js")
 // Writable.
 
 module.exports = Duplex;
+var inherits = _dereq_('inherits');
+var setImmediate = _dereq_('process/browser.js').nextTick;
+var Readable = _dereq_('./readable.js');
+var Writable = _dereq_('./writable.js');
 
-/*<replacement>*/
-var objectKeys = Object.keys || function (obj) {
-  var keys = [];
-  for (var key in obj) keys.push(key);
-  return keys;
-}
-/*</replacement>*/
+inherits(Duplex, Readable);
 
-
-/*<replacement>*/
-var util = require('core-util-is');
-util.inherits = require('inherits');
-/*</replacement>*/
-
-var Readable = require('./_stream_readable');
-var Writable = require('./_stream_writable');
-
-util.inherits(Duplex, Readable);
-
-forEach(objectKeys(Writable.prototype), function(method) {
-  if (!Duplex.prototype[method])
-    Duplex.prototype[method] = Writable.prototype[method];
-});
+Duplex.prototype.write = Writable.prototype.write;
+Duplex.prototype.end = Writable.prototype.end;
+Duplex.prototype._write = Writable.prototype._write;
 
 function Duplex(options) {
   if (!(this instanceof Duplex))
@@ -4220,17 +3231,197 @@ function onend() {
 
   // no more data can be written.
   // But allow more writes to happen in this tick.
-  process.nextTick(this.end.bind(this));
+  var self = this;
+  setImmediate(function () {
+    self.end();
+  });
 }
 
-function forEach (xs, f) {
-  for (var i = 0, l = xs.length; i < l; i++) {
-    f(xs[i], i);
+},{"./readable.js":22,"./writable.js":24,"inherits":11,"process/browser.js":20}],19:[function(_dereq_,module,exports){
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+module.exports = Stream;
+
+var EE = _dereq_('events').EventEmitter;
+var inherits = _dereq_('inherits');
+
+inherits(Stream, EE);
+Stream.Readable = _dereq_('./readable.js');
+Stream.Writable = _dereq_('./writable.js');
+Stream.Duplex = _dereq_('./duplex.js');
+Stream.Transform = _dereq_('./transform.js');
+Stream.PassThrough = _dereq_('./passthrough.js');
+
+// Backwards-compat with node 0.4.x
+Stream.Stream = Stream;
+
+
+
+// old-style streams.  Note that the pipe method (the only relevant
+// part of this class) is overridden in the Readable class.
+
+function Stream() {
+  EE.call(this);
+}
+
+Stream.prototype.pipe = function(dest, options) {
+  var source = this;
+
+  function ondata(chunk) {
+    if (dest.writable) {
+      if (false === dest.write(chunk) && source.pause) {
+        source.pause();
+      }
+    }
   }
+
+  source.on('data', ondata);
+
+  function ondrain() {
+    if (source.readable && source.resume) {
+      source.resume();
+    }
+  }
+
+  dest.on('drain', ondrain);
+
+  // If the 'end' option is not supplied, dest.end() will be called when
+  // source gets the 'end' or 'close' events.  Only dest.end() once.
+  if (!dest._isStdio && (!options || options.end !== false)) {
+    source.on('end', onend);
+    source.on('close', onclose);
+  }
+
+  var didOnEnd = false;
+  function onend() {
+    if (didOnEnd) return;
+    didOnEnd = true;
+
+    dest.end();
+  }
+
+
+  function onclose() {
+    if (didOnEnd) return;
+    didOnEnd = true;
+
+    if (typeof dest.destroy === 'function') dest.destroy();
+  }
+
+  // don't leave dangling pipes when there are errors.
+  function onerror(er) {
+    cleanup();
+    if (EE.listenerCount(this, 'error') === 0) {
+      throw er; // Unhandled stream error in pipe.
+    }
+  }
+
+  source.on('error', onerror);
+  dest.on('error', onerror);
+
+  // remove all the event listeners that were added.
+  function cleanup() {
+    source.removeListener('data', ondata);
+    dest.removeListener('drain', ondrain);
+
+    source.removeListener('end', onend);
+    source.removeListener('close', onclose);
+
+    source.removeListener('error', onerror);
+    dest.removeListener('error', onerror);
+
+    source.removeListener('end', cleanup);
+    source.removeListener('close', cleanup);
+
+    dest.removeListener('close', cleanup);
+  }
+
+  source.on('end', cleanup);
+  source.on('close', cleanup);
+
+  dest.on('close', cleanup);
+
+  dest.emit('pipe', source);
+
+  // Allow for unix-like usage: A.pipe(B).pipe(C)
+  return dest;
+};
+
+},{"./duplex.js":18,"./passthrough.js":21,"./readable.js":22,"./transform.js":23,"./writable.js":24,"events":5,"inherits":11}],20:[function(_dereq_,module,exports){
+// shim for using process in browser
+
+var process = module.exports = {};
+
+process.nextTick = (function () {
+    var canSetImmediate = typeof window !== 'undefined'
+    && window.setImmediate;
+    var canPost = typeof window !== 'undefined'
+    && window.postMessage && window.addEventListener
+    ;
+
+    if (canSetImmediate) {
+        return function (f) { return window.setImmediate(f) };
+    }
+
+    if (canPost) {
+        var queue = [];
+        window.addEventListener('message', function (ev) {
+            var source = ev.source;
+            if ((source === window || source === null) && ev.data === 'process-tick') {
+                ev.stopPropagation();
+                if (queue.length > 0) {
+                    var fn = queue.shift();
+                    fn();
+                }
+            }
+        }, true);
+
+        return function nextTick(fn) {
+            queue.push(fn);
+            window.postMessage('process-tick', '*');
+        };
+    }
+
+    return function nextTick(fn) {
+        setTimeout(fn, 0);
+    };
+})();
+
+process.title = 'browser';
+process.browser = true;
+process.env = {};
+process.argv = [];
+
+process.binding = function (name) {
+    throw new Error('process.binding is not supported');
 }
 
-}).call(this,require('_process'))
-},{"./_stream_readable":24,"./_stream_writable":26,"_process":16,"core-util-is":27,"inherits":13}],23:[function(require,module,exports){
+// TODO(shtylman)
+process.cwd = function () { return '/' };
+process.chdir = function (dir) {
+    throw new Error('process.chdir is not supported');
+};
+
+},{}],21:[function(_dereq_,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -4258,14 +3449,9 @@ function forEach (xs, f) {
 
 module.exports = PassThrough;
 
-var Transform = require('./_stream_transform');
-
-/*<replacement>*/
-var util = require('core-util-is');
-util.inherits = require('inherits');
-/*</replacement>*/
-
-util.inherits(PassThrough, Transform);
+var Transform = _dereq_('./transform.js');
+var inherits = _dereq_('inherits');
+inherits(PassThrough, Transform);
 
 function PassThrough(options) {
   if (!(this instanceof PassThrough))
@@ -4278,7 +3464,7 @@ PassThrough.prototype._transform = function(chunk, encoding, cb) {
   cb(null, chunk);
 };
 
-},{"./_stream_transform":25,"core-util-is":27,"inherits":13}],24:[function(require,module,exports){
+},{"./transform.js":23,"inherits":11}],22:[function(_dereq_,module,exports){
 (function (process){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -4302,36 +3488,16 @@ PassThrough.prototype._transform = function(chunk, encoding, cb) {
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 module.exports = Readable;
-
-/*<replacement>*/
-var isArray = require('isarray');
-/*</replacement>*/
-
-
-/*<replacement>*/
-var Buffer = require('buffer').Buffer;
-/*</replacement>*/
-
 Readable.ReadableState = ReadableState;
 
-var EE = require('events').EventEmitter;
-
-/*<replacement>*/
-if (!EE.listenerCount) EE.listenerCount = function(emitter, type) {
-  return emitter.listeners(type).length;
-};
-/*</replacement>*/
-
-var Stream = require('stream');
-
-/*<replacement>*/
-var util = require('core-util-is');
-util.inherits = require('inherits');
-/*</replacement>*/
-
+var EE = _dereq_('events').EventEmitter;
+var Stream = _dereq_('./index.js');
+var Buffer = _dereq_('buffer').Buffer;
+var setImmediate = _dereq_('process/browser.js').nextTick;
 var StringDecoder;
 
-util.inherits(Readable, Stream);
+var inherits = _dereq_('inherits');
+inherits(Readable, Stream);
 
 function ReadableState(options, stream) {
   options = options || {};
@@ -4395,7 +3561,7 @@ function ReadableState(options, stream) {
   this.encoding = null;
   if (options.encoding) {
     if (!StringDecoder)
-      StringDecoder = require('string_decoder/').StringDecoder;
+      StringDecoder = _dereq_('string_decoder').StringDecoder;
     this.decoder = new StringDecoder(options.encoding);
     this.encoding = options.encoding;
   }
@@ -4496,7 +3662,7 @@ function needMoreData(state) {
 // backwards compatibility.
 Readable.prototype.setEncoding = function(enc) {
   if (!StringDecoder)
-    StringDecoder = require('string_decoder/').StringDecoder;
+    StringDecoder = _dereq_('string_decoder').StringDecoder;
   this._readableState.decoder = new StringDecoder(enc);
   this._readableState.encoding = enc;
 };
@@ -4522,7 +3688,7 @@ function howMuchToRead(n, state) {
   if (state.objectMode)
     return n === 0 ? 0 : 1;
 
-  if (n === null || isNaN(n)) {
+  if (isNaN(n) || n === null) {
     // only flow one buffer at a time
     if (state.flowing && state.buffer.length)
       return state.buffer[0].length;
@@ -4557,7 +3723,6 @@ Readable.prototype.read = function(n) {
   var state = this._readableState;
   state.calledRead = true;
   var nOrig = n;
-  var ret;
 
   if (typeof n !== 'number' || n > 0)
     state.emittedReadable = false;
@@ -4576,28 +3741,9 @@ Readable.prototype.read = function(n) {
 
   // if we've ended, and we're now clear, then finish it up.
   if (n === 0 && state.ended) {
-    ret = null;
-
-    // In cases where the decoder did not receive enough data
-    // to produce a full chunk, then immediately received an
-    // EOF, state.buffer will contain [<Buffer >, <Buffer 00 ...>].
-    // howMuchToRead will see this and coerce the amount to
-    // read to zero (because it's looking at the length of the
-    // first <Buffer > in state.buffer), and we'll end up here.
-    //
-    // This can only happen via state.decoder -- no other venue
-    // exists for pushing a zero-length chunk into state.buffer
-    // and triggering this behavior. In this case, we return our
-    // remaining data and end the stream, if appropriate.
-    if (state.length > 0 && state.decoder) {
-      ret = fromList(n, state);
-      state.length -= ret.length;
-    }
-
     if (state.length === 0)
       endReadable(this);
-
-    return ret;
+    return null;
   }
 
   // All the actual chunk generation logic needs to be
@@ -4651,6 +3797,7 @@ Readable.prototype.read = function(n) {
   if (doRead && !state.reading)
     n = howMuchToRead(nOrig, state);
 
+  var ret;
   if (n > 0)
     ret = fromList(n, state);
   else
@@ -4683,7 +3830,8 @@ function chunkInvalid(state, chunk) {
       'string' !== typeof chunk &&
       chunk !== null &&
       chunk !== undefined &&
-      !state.objectMode) {
+      !state.objectMode &&
+      !er) {
     er = new TypeError('Invalid non-string/buffer chunk');
   }
   return er;
@@ -4719,7 +3867,7 @@ function emitReadable(stream) {
 
   state.emittedReadable = true;
   if (state.sync)
-    process.nextTick(function() {
+    setImmediate(function() {
       emitReadable_(stream);
     });
   else
@@ -4740,7 +3888,7 @@ function emitReadable_(stream) {
 function maybeReadMore(stream, state) {
   if (!state.readingMore) {
     state.readingMore = true;
-    process.nextTick(function() {
+    setImmediate(function() {
       maybeReadMore_(stream, state);
     });
   }
@@ -4791,7 +3939,7 @@ Readable.prototype.pipe = function(dest, pipeOpts) {
 
   var endFn = doEnd ? onend : cleanup;
   if (state.endEmitted)
-    process.nextTick(endFn);
+    setImmediate(endFn);
   else
     src.once('end', endFn);
 
@@ -4833,22 +3981,14 @@ Readable.prototype.pipe = function(dest, pipeOpts) {
 
   // if the dest has an error, then stop piping into it.
   // however, don't suppress the throwing behavior for this.
+  // check for listeners before emit removes one-time listeners.
+  var errListeners = EE.listenerCount(dest, 'error');
   function onerror(er) {
     unpipe();
-    dest.removeListener('error', onerror);
-    if (EE.listenerCount(dest, 'error') === 0)
+    if (errListeners === 0 && EE.listenerCount(dest, 'error') === 0)
       dest.emit('error', er);
   }
-  // This is a brutally ugly hack to make sure that our error handler
-  // is attached before any userland ones.  NEVER DO THIS.
-  if (!dest._events || !dest._events.error)
-    dest.on('error', onerror);
-  else if (isArray(dest._events.error))
-    dest._events.error.unshift(onerror);
-  else
-    dest._events.error = [onerror, dest._events.error];
-
-
+  dest.once('error', onerror);
 
   // Both close and finish should trigger unpipe, but only once.
   function onclose() {
@@ -4878,7 +4018,7 @@ Readable.prototype.pipe = function(dest, pipeOpts) {
     this.on('readable', pipeOnReadable);
 
     state.flowing = true;
-    process.nextTick(function() {
+    setImmediate(function() {
       flow(src);
     });
   }
@@ -5081,7 +4221,7 @@ function emitDataEvents(stream, startPaused) {
   stream.resume = function() {
     paused = false;
     if (readable)
-      process.nextTick(function() {
+      setImmediate(function() {
         stream.emit('readable');
       });
     else
@@ -5114,12 +4254,7 @@ Readable.prototype.wrap = function(stream) {
   stream.on('data', function(chunk) {
     if (state.decoder)
       chunk = state.decoder.write(chunk);
-
-    // don't skip over falsy values in objectMode
-    //if (state.objectMode && util.isNullOrUndefined(chunk))
-    if (state.objectMode && (chunk === null || chunk === undefined))
-      return;
-    else if (!state.objectMode && (!chunk || !chunk.length))
+    if (!chunk || !state.objectMode && !chunk.length)
       return;
 
     var ret = self.push(chunk);
@@ -5143,7 +4278,9 @@ Readable.prototype.wrap = function(stream) {
   // proxy certain important events.
   var events = ['error', 'close', 'destroy', 'pause', 'resume'];
   forEach(events, function(ev) {
-    stream.on(ev, self.emit.bind(self, ev));
+    stream.on(ev, function (x) {
+      return self.emit.apply(self, ev, x);
+    });
   });
 
   // when we try to consume some more bytes, simply unpause the
@@ -5239,7 +4376,7 @@ function endReadable(stream) {
 
   if (!state.endEmitted && state.calledRead) {
     state.ended = true;
-    process.nextTick(function() {
+    setImmediate(function() {
       // Check that we didn't get one last unshift.
       if (!state.endEmitted && state.length === 0) {
         state.endEmitted = true;
@@ -5263,8 +4400,8 @@ function indexOf (xs, x) {
   return -1;
 }
 
-}).call(this,require('_process'))
-},{"_process":16,"buffer":3,"core-util-is":27,"events":7,"inherits":13,"isarray":14,"stream":32,"string_decoder/":33}],25:[function(require,module,exports){
+}).call(this,_dereq_("1YiZ5S"))
+},{"./index.js":19,"1YiZ5S":13,"buffer":2,"events":5,"inherits":11,"process/browser.js":20,"string_decoder":25}],23:[function(_dereq_,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -5285,7 +4422,6 @@ function indexOf (xs, x) {
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
-
 
 // a transform stream is a readable/writable stream where you do
 // something with the data.  Sometimes it's called a "filter",
@@ -5331,14 +4467,9 @@ function indexOf (xs, x) {
 
 module.exports = Transform;
 
-var Duplex = require('./_stream_duplex');
-
-/*<replacement>*/
-var util = require('core-util-is');
-util.inherits = require('inherits');
-/*</replacement>*/
-
-util.inherits(Transform, Duplex);
+var Duplex = _dereq_('./duplex.js');
+var inherits = _dereq_('inherits');
+inherits(Transform, Duplex);
 
 
 function TransformState(options, stream) {
@@ -5446,7 +4577,7 @@ Transform.prototype._write = function(chunk, encoding, cb) {
 Transform.prototype._read = function(n) {
   var ts = this._transformState;
 
-  if (ts.writechunk !== null && ts.writecb && !ts.transforming) {
+  if (ts.writechunk && ts.writecb && !ts.transforming) {
     ts.transforming = true;
     this._transform(ts.writechunk, ts.writeencoding, ts.afterTransform);
   } else {
@@ -5476,8 +4607,7 @@ function done(stream, er) {
   return stream.push(null);
 }
 
-},{"./_stream_duplex":22,"core-util-is":27,"inherits":13}],26:[function(require,module,exports){
-(function (process){
+},{"./duplex.js":18,"inherits":11}],24:[function(_dereq_,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -5504,22 +4634,27 @@ function done(stream, er) {
 // the drain event emission and buffering.
 
 module.exports = Writable;
-
-/*<replacement>*/
-var Buffer = require('buffer').Buffer;
-/*</replacement>*/
-
 Writable.WritableState = WritableState;
 
+var isUint8Array = typeof Uint8Array !== 'undefined'
+  ? function (x) { return x instanceof Uint8Array }
+  : function (x) {
+    return x && x.constructor && x.constructor.name === 'Uint8Array'
+  }
+;
+var isArrayBuffer = typeof ArrayBuffer !== 'undefined'
+  ? function (x) { return x instanceof ArrayBuffer }
+  : function (x) {
+    return x && x.constructor && x.constructor.name === 'ArrayBuffer'
+  }
+;
 
-/*<replacement>*/
-var util = require('core-util-is');
-util.inherits = require('inherits');
-/*</replacement>*/
+var inherits = _dereq_('inherits');
+var Stream = _dereq_('./index.js');
+var setImmediate = _dereq_('process/browser.js').nextTick;
+var Buffer = _dereq_('buffer').Buffer;
 
-var Stream = require('stream');
-
-util.inherits(Writable, Stream);
+inherits(Writable, Stream);
 
 function WriteReq(chunk, encoding, cb) {
   this.chunk = chunk;
@@ -5593,17 +4728,12 @@ function WritableState(options, stream) {
   this.writelen = 0;
 
   this.buffer = [];
-
-  // True if the error was already emitted and should not be thrown again
-  this.errorEmitted = false;
 }
 
 function Writable(options) {
-  var Duplex = require('./_stream_duplex');
-
   // Writable ctor is applied to Duplexes, though they're not
   // instanceof Writable, they're instanceof Readable.
-  if (!(this instanceof Writable) && !(this instanceof Duplex))
+  if (!(this instanceof Writable) && !(this instanceof Stream.Duplex))
     return new Writable(options);
 
   this._writableState = new WritableState(options, this);
@@ -5624,7 +4754,7 @@ function writeAfterEnd(stream, state, cb) {
   var er = new Error('write after end');
   // TODO: defer error events consistently everywhere, not just the cb
   stream.emit('error', er);
-  process.nextTick(function() {
+  setImmediate(function() {
     cb(er);
   });
 }
@@ -5643,7 +4773,7 @@ function validChunk(stream, state, chunk, cb) {
       !state.objectMode) {
     var er = new TypeError('Invalid non-string/buffer chunk');
     stream.emit('error', er);
-    process.nextTick(function() {
+    setImmediate(function() {
       cb(er);
     });
     valid = false;
@@ -5660,6 +4790,11 @@ Writable.prototype.write = function(chunk, encoding, cb) {
     encoding = null;
   }
 
+  if (!Buffer.isBuffer(chunk) && isUint8Array(chunk))
+    chunk = new Buffer(chunk);
+  if (isArrayBuffer(chunk) && typeof Uint8Array !== 'undefined')
+    chunk = new Buffer(new Uint8Array(chunk));
+  
   if (Buffer.isBuffer(chunk))
     encoding = 'buffer';
   else if (!encoding)
@@ -5690,16 +4825,12 @@ function decodeChunk(state, chunk, encoding) {
 // If we return false, then we need a drain event, so set that flag.
 function writeOrBuffer(stream, state, chunk, encoding, cb) {
   chunk = decodeChunk(state, chunk, encoding);
-  if (Buffer.isBuffer(chunk))
-    encoding = 'buffer';
   var len = state.objectMode ? 1 : chunk.length;
 
   state.length += len;
 
   var ret = state.length < state.highWaterMark;
-  // we must ensure that previous needDrain will not be reset to false.
-  if (!ret)
-    state.needDrain = true;
+  state.needDrain = !ret;
 
   if (state.writing)
     state.buffer.push(new WriteReq(chunk, encoding, cb));
@@ -5720,13 +4851,12 @@ function doWrite(stream, state, len, chunk, encoding, cb) {
 
 function onwriteError(stream, state, sync, er, cb) {
   if (sync)
-    process.nextTick(function() {
+    setImmediate(function() {
       cb(er);
     });
   else
     cb(er);
 
-  stream._writableState.errorEmitted = true;
   stream.emit('error', er);
 }
 
@@ -5754,7 +4884,7 @@ function onwrite(stream, er) {
       clearBuffer(stream, state);
 
     if (sync) {
-      process.nextTick(function() {
+      setImmediate(function() {
         afterWrite(stream, state, finished, cb);
       });
     } else {
@@ -5858,16 +4988,14 @@ function endWritable(stream, state, cb) {
   finishMaybe(stream, state);
   if (cb) {
     if (state.finished)
-      process.nextTick(cb);
+      setImmediate(cb);
     else
       stream.once('finish', cb);
   }
   state.ended = true;
 }
 
-}).call(this,require('_process'))
-},{"./_stream_duplex":22,"_process":16,"buffer":3,"core-util-is":27,"inherits":13,"stream":32}],27:[function(require,module,exports){
-(function (Buffer){
+},{"./index.js":19,"buffer":2,"inherits":11,"process/browser.js":20}],25:[function(_dereq_,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -5889,288 +5017,14 @@ function endWritable(stream, state, cb) {
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-// NOTE: These type checking functions intentionally don't use `instanceof`
-// because it is fragile and can be easily faked with `Object.create()`.
-function isArray(ar) {
-  return Array.isArray(ar);
-}
-exports.isArray = isArray;
-
-function isBoolean(arg) {
-  return typeof arg === 'boolean';
-}
-exports.isBoolean = isBoolean;
-
-function isNull(arg) {
-  return arg === null;
-}
-exports.isNull = isNull;
-
-function isNullOrUndefined(arg) {
-  return arg == null;
-}
-exports.isNullOrUndefined = isNullOrUndefined;
-
-function isNumber(arg) {
-  return typeof arg === 'number';
-}
-exports.isNumber = isNumber;
-
-function isString(arg) {
-  return typeof arg === 'string';
-}
-exports.isString = isString;
-
-function isSymbol(arg) {
-  return typeof arg === 'symbol';
-}
-exports.isSymbol = isSymbol;
-
-function isUndefined(arg) {
-  return arg === void 0;
-}
-exports.isUndefined = isUndefined;
-
-function isRegExp(re) {
-  return isObject(re) && objectToString(re) === '[object RegExp]';
-}
-exports.isRegExp = isRegExp;
-
-function isObject(arg) {
-  return typeof arg === 'object' && arg !== null;
-}
-exports.isObject = isObject;
-
-function isDate(d) {
-  return isObject(d) && objectToString(d) === '[object Date]';
-}
-exports.isDate = isDate;
-
-function isError(e) {
-  return isObject(e) &&
-      (objectToString(e) === '[object Error]' || e instanceof Error);
-}
-exports.isError = isError;
-
-function isFunction(arg) {
-  return typeof arg === 'function';
-}
-exports.isFunction = isFunction;
-
-function isPrimitive(arg) {
-  return arg === null ||
-         typeof arg === 'boolean' ||
-         typeof arg === 'number' ||
-         typeof arg === 'string' ||
-         typeof arg === 'symbol' ||  // ES6 symbol
-         typeof arg === 'undefined';
-}
-exports.isPrimitive = isPrimitive;
-
-function isBuffer(arg) {
-  return Buffer.isBuffer(arg);
-}
-exports.isBuffer = isBuffer;
-
-function objectToString(o) {
-  return Object.prototype.toString.call(o);
-}
-}).call(this,require("buffer").Buffer)
-},{"buffer":3}],28:[function(require,module,exports){
-module.exports = require("./lib/_stream_passthrough.js")
-
-},{"./lib/_stream_passthrough.js":23}],29:[function(require,module,exports){
-var Stream = require('stream'); // hack to fix a circular dependency issue when used with browserify
-exports = module.exports = require('./lib/_stream_readable.js');
-exports.Stream = Stream;
-exports.Readable = exports;
-exports.Writable = require('./lib/_stream_writable.js');
-exports.Duplex = require('./lib/_stream_duplex.js');
-exports.Transform = require('./lib/_stream_transform.js');
-exports.PassThrough = require('./lib/_stream_passthrough.js');
-
-},{"./lib/_stream_duplex.js":22,"./lib/_stream_passthrough.js":23,"./lib/_stream_readable.js":24,"./lib/_stream_transform.js":25,"./lib/_stream_writable.js":26,"stream":32}],30:[function(require,module,exports){
-module.exports = require("./lib/_stream_transform.js")
-
-},{"./lib/_stream_transform.js":25}],31:[function(require,module,exports){
-module.exports = require("./lib/_stream_writable.js")
-
-},{"./lib/_stream_writable.js":26}],32:[function(require,module,exports){
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-module.exports = Stream;
-
-var EE = require('events').EventEmitter;
-var inherits = require('inherits');
-
-inherits(Stream, EE);
-Stream.Readable = require('readable-stream/readable.js');
-Stream.Writable = require('readable-stream/writable.js');
-Stream.Duplex = require('readable-stream/duplex.js');
-Stream.Transform = require('readable-stream/transform.js');
-Stream.PassThrough = require('readable-stream/passthrough.js');
-
-// Backwards-compat with node 0.4.x
-Stream.Stream = Stream;
-
-
-
-// old-style streams.  Note that the pipe method (the only relevant
-// part of this class) is overridden in the Readable class.
-
-function Stream() {
-  EE.call(this);
-}
-
-Stream.prototype.pipe = function(dest, options) {
-  var source = this;
-
-  function ondata(chunk) {
-    if (dest.writable) {
-      if (false === dest.write(chunk) && source.pause) {
-        source.pause();
-      }
-    }
-  }
-
-  source.on('data', ondata);
-
-  function ondrain() {
-    if (source.readable && source.resume) {
-      source.resume();
-    }
-  }
-
-  dest.on('drain', ondrain);
-
-  // If the 'end' option is not supplied, dest.end() will be called when
-  // source gets the 'end' or 'close' events.  Only dest.end() once.
-  if (!dest._isStdio && (!options || options.end !== false)) {
-    source.on('end', onend);
-    source.on('close', onclose);
-  }
-
-  var didOnEnd = false;
-  function onend() {
-    if (didOnEnd) return;
-    didOnEnd = true;
-
-    dest.end();
-  }
-
-
-  function onclose() {
-    if (didOnEnd) return;
-    didOnEnd = true;
-
-    if (typeof dest.destroy === 'function') dest.destroy();
-  }
-
-  // don't leave dangling pipes when there are errors.
-  function onerror(er) {
-    cleanup();
-    if (EE.listenerCount(this, 'error') === 0) {
-      throw er; // Unhandled stream error in pipe.
-    }
-  }
-
-  source.on('error', onerror);
-  dest.on('error', onerror);
-
-  // remove all the event listeners that were added.
-  function cleanup() {
-    source.removeListener('data', ondata);
-    dest.removeListener('drain', ondrain);
-
-    source.removeListener('end', onend);
-    source.removeListener('close', onclose);
-
-    source.removeListener('error', onerror);
-    dest.removeListener('error', onerror);
-
-    source.removeListener('end', cleanup);
-    source.removeListener('close', cleanup);
-
-    dest.removeListener('close', cleanup);
-  }
-
-  source.on('end', cleanup);
-  source.on('close', cleanup);
-
-  dest.on('close', cleanup);
-
-  dest.emit('pipe', source);
-
-  // Allow for unix-like usage: A.pipe(B).pipe(C)
-  return dest;
-};
-
-},{"events":7,"inherits":13,"readable-stream/duplex.js":21,"readable-stream/passthrough.js":28,"readable-stream/readable.js":29,"readable-stream/transform.js":30,"readable-stream/writable.js":31}],33:[function(require,module,exports){
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-var Buffer = require('buffer').Buffer;
-
-var isBufferEncoding = Buffer.isEncoding
-  || function(encoding) {
-       switch (encoding && encoding.toLowerCase()) {
-         case 'hex': case 'utf8': case 'utf-8': case 'ascii': case 'binary': case 'base64': case 'ucs2': case 'ucs-2': case 'utf16le': case 'utf-16le': case 'raw': return true;
-         default: return false;
-       }
-     }
-
+var Buffer = _dereq_('buffer').Buffer;
 
 function assertEncoding(encoding) {
-  if (encoding && !isBufferEncoding(encoding)) {
+  if (encoding && !Buffer.isEncoding(encoding)) {
     throw new Error('Unknown encoding: ' + encoding);
   }
 }
 
-// StringDecoder provides an interface for efficiently splitting a series of
-// buffers into a series of JS strings without breaking apart multi-byte
-// characters. CESU-8 is handled as part of the UTF-8 encoding.
-//
-// @TODO Handling all encodings inside a single object makes it very difficult
-// to reason about this code, so it should be split up in the future.
-// @TODO There should be a utf8-strict encoding that rejects invalid UTF-8 code
-// points as used by CESU-8.
 var StringDecoder = exports.StringDecoder = function(encoding) {
   this.encoding = (encoding || 'utf8').toLowerCase().replace(/[-_]/, '');
   assertEncoding(encoding);
@@ -6195,50 +5049,37 @@ var StringDecoder = exports.StringDecoder = function(encoding) {
       return;
   }
 
-  // Enough space to store all bytes of a single character. UTF-8 needs 4
-  // bytes, but CESU-8 may require up to 6 (3 bytes per surrogate).
   this.charBuffer = new Buffer(6);
-  // Number of bytes received for the current incomplete multi-byte character.
   this.charReceived = 0;
-  // Number of bytes expected for the current incomplete multi-byte character.
   this.charLength = 0;
 };
 
 
-// write decodes the given buffer and returns it as JS string that is
-// guaranteed to not contain any partial multi-byte characters. Any partial
-// character found at the end of the buffer is buffered up, and will be
-// returned when calling write again with the remaining bytes.
-//
-// Note: Converting a Buffer containing an orphan surrogate to a String
-// currently works, but converting a String to a Buffer (via `new Buffer`, or
-// Buffer#write) will replace incomplete surrogates with the unicode
-// replacement character. See https://codereview.chromium.org/121173009/ .
 StringDecoder.prototype.write = function(buffer) {
   var charStr = '';
+  var offset = 0;
+
   // if our last write ended with an incomplete multibyte character
   while (this.charLength) {
     // determine how many remaining bytes this buffer has to offer for this char
-    var available = (buffer.length >= this.charLength - this.charReceived) ?
-        this.charLength - this.charReceived :
-        buffer.length;
+    var i = (buffer.length >= this.charLength - this.charReceived) ?
+                this.charLength - this.charReceived :
+                buffer.length;
 
     // add the new bytes to the char buffer
-    buffer.copy(this.charBuffer, this.charReceived, 0, available);
-    this.charReceived += available;
+    buffer.copy(this.charBuffer, this.charReceived, offset, i);
+    this.charReceived += (i - offset);
+    offset = i;
 
     if (this.charReceived < this.charLength) {
       // still not enough chars in this buffer? wait for more ...
       return '';
     }
 
-    // remove bytes belonging to the current character from the buffer
-    buffer = buffer.slice(available, buffer.length);
-
     // get the character that was split
     charStr = this.charBuffer.slice(0, this.charLength).toString(this.encoding);
 
-    // CESU-8: lead surrogate (D800-DBFF) is also the incomplete character
+    // lead surrogate (D800-DBFF) is also the incomplete character
     var charCode = charStr.charCodeAt(charStr.length - 1);
     if (charCode >= 0xD800 && charCode <= 0xDBFF) {
       this.charLength += this.surrogateSize;
@@ -6248,33 +5089,34 @@ StringDecoder.prototype.write = function(buffer) {
     this.charReceived = this.charLength = 0;
 
     // if there are no more bytes in this buffer, just emit our char
-    if (buffer.length === 0) {
-      return charStr;
-    }
+    if (i == buffer.length) return charStr;
+
+    // otherwise cut off the characters end from the beginning of this buffer
+    buffer = buffer.slice(i, buffer.length);
     break;
   }
 
-  // determine and set charLength / charReceived
-  this.detectIncompleteChar(buffer);
+  var lenIncomplete = this.detectIncompleteChar(buffer);
 
   var end = buffer.length;
   if (this.charLength) {
     // buffer the incomplete character bytes we got
-    buffer.copy(this.charBuffer, 0, buffer.length - this.charReceived, end);
-    end -= this.charReceived;
+    buffer.copy(this.charBuffer, 0, buffer.length - lenIncomplete, end);
+    this.charReceived = lenIncomplete;
+    end -= lenIncomplete;
   }
 
   charStr += buffer.toString(this.encoding, 0, end);
 
   var end = charStr.length - 1;
   var charCode = charStr.charCodeAt(end);
-  // CESU-8: lead surrogate (D800-DBFF) is also the incomplete character
+  // lead surrogate (D800-DBFF) is also the incomplete character
   if (charCode >= 0xD800 && charCode <= 0xDBFF) {
     var size = this.surrogateSize;
     this.charLength += size;
     this.charReceived += size;
     this.charBuffer.copy(this.charBuffer, size, 0, size);
-    buffer.copy(this.charBuffer, 0, 0, size);
+    this.charBuffer.write(charStr.charAt(charStr.length - 1), this.encoding);
     return charStr.substring(0, end);
   }
 
@@ -6282,10 +5124,6 @@ StringDecoder.prototype.write = function(buffer) {
   return charStr;
 };
 
-// detectIncompleteChar determines if there is an incomplete UTF-8 character at
-// the end of the given buffer. If so, it sets this.charLength to the byte
-// length that character, and sets this.charReceived to the number of bytes
-// that are available for this character.
 StringDecoder.prototype.detectIncompleteChar = function(buffer) {
   // determine how many bytes we have to check at the end of this buffer
   var i = (buffer.length >= 3) ? 3 : buffer.length;
@@ -6315,7 +5153,8 @@ StringDecoder.prototype.detectIncompleteChar = function(buffer) {
       break;
     }
   }
-  this.charReceived = i;
+
+  return i;
 };
 
 StringDecoder.prototype.end = function(buffer) {
@@ -6338,153 +5177,45 @@ function passThroughWrite(buffer) {
 }
 
 function utf16DetectIncompleteChar(buffer) {
-  this.charReceived = buffer.length % 2;
-  this.charLength = this.charReceived ? 2 : 0;
+  var incomplete = this.charReceived = buffer.length % 2;
+  this.charLength = incomplete ? 2 : 0;
+  return incomplete;
 }
 
 function base64DetectIncompleteChar(buffer) {
-  this.charReceived = buffer.length % 3;
-  this.charLength = this.charReceived ? 3 : 0;
+  var incomplete = this.charReceived = buffer.length % 3;
+  this.charLength = incomplete ? 3 : 0;
+  return incomplete;
 }
 
-},{"buffer":3}],34:[function(require,module,exports){
-var nextTick = require('process/browser.js').nextTick;
-var apply = Function.prototype.apply;
-var slice = Array.prototype.slice;
-var immediateIds = {};
-var nextImmediateId = 0;
-
+},{"buffer":2}],26:[function(_dereq_,module,exports){
 // DOM APIs, for completeness
 
-exports.setTimeout = function() {
-  return new Timeout(apply.call(setTimeout, window, arguments), clearTimeout);
-};
-exports.setInterval = function() {
-  return new Timeout(apply.call(setInterval, window, arguments), clearInterval);
-};
-exports.clearTimeout =
-exports.clearInterval = function(timeout) { timeout.close(); };
+if (typeof setTimeout !== 'undefined') exports.setTimeout = function() { return setTimeout.apply(window, arguments); };
+if (typeof clearTimeout !== 'undefined') exports.clearTimeout = function() { clearTimeout.apply(window, arguments); };
+if (typeof setInterval !== 'undefined') exports.setInterval = function() { return setInterval.apply(window, arguments); };
+if (typeof clearInterval !== 'undefined') exports.clearInterval = function() { clearInterval.apply(window, arguments); };
 
-function Timeout(id, clearFn) {
-  this._id = id;
-  this._clearFn = clearFn;
-}
-Timeout.prototype.unref = Timeout.prototype.ref = function() {};
-Timeout.prototype.close = function() {
-  this._clearFn.call(window, this._id);
-};
+// TODO: Change to more effiecient list approach used in Node.js
+// For now, we just implement the APIs using the primitives above.
 
-// Does not start the time, just sets up the members needed.
-exports.enroll = function(item, msecs) {
-  clearTimeout(item._idleTimeoutId);
-  item._idleTimeout = msecs;
+exports.enroll = function(item, delay) {
+  item._timeoutID = setTimeout(item._onTimeout, delay);
 };
 
 exports.unenroll = function(item) {
-  clearTimeout(item._idleTimeoutId);
-  item._idleTimeout = -1;
+  clearTimeout(item._timeoutID);
 };
 
-exports._unrefActive = exports.active = function(item) {
-  clearTimeout(item._idleTimeoutId);
-
-  var msecs = item._idleTimeout;
-  if (msecs >= 0) {
-    item._idleTimeoutId = setTimeout(function onTimeout() {
-      if (item._onTimeout)
-        item._onTimeout();
-    }, msecs);
-  }
+exports.active = function(item) {
+  // our naive impl doesn't care (correctness is still preserved)
 };
 
-// That's not how node.js implements it but the exposed api is the same.
-exports.setImmediate = typeof setImmediate === "function" ? setImmediate : function(fn) {
-  var id = nextImmediateId++;
-  var args = arguments.length < 2 ? false : slice.call(arguments, 1);
+exports.setImmediate = _dereq_('process/browser.js').nextTick;
 
-  immediateIds[id] = true;
-
-  nextTick(function onNextTick() {
-    if (immediateIds[id]) {
-      // fn.call() is faster so we optimize for the common use-case
-      // @see http://jsperf.com/call-apply-segu
-      if (args) {
-        fn.apply(null, args);
-      } else {
-        fn.call(null);
-      }
-      // Prevent ids from leaking
-      exports.clearImmediate(id);
-    }
-  });
-
-  return id;
-};
-
-exports.clearImmediate = typeof clearImmediate === "function" ? clearImmediate : function(id) {
-  delete immediateIds[id];
-};
-},{"process/browser.js":35}],35:[function(require,module,exports){
-// shim for using process in browser
-
-var process = module.exports = {};
-var queue = [];
-var draining = false;
-
-function drainQueue() {
-    if (draining) {
-        return;
-    }
-    draining = true;
-    var currentQueue;
-    var len = queue.length;
-    while(len) {
-        currentQueue = queue;
-        queue = [];
-        var i = -1;
-        while (++i < len) {
-            currentQueue[i]();
-        }
-        len = queue.length;
-    }
-    draining = false;
-}
-process.nextTick = function (fun) {
-    queue.push(fun);
-    if (!draining) {
-        setTimeout(drainQueue, 0);
-    }
-};
-
-process.title = 'browser';
-process.browser = true;
-process.env = {};
-process.argv = [];
-process.version = ''; // empty string to avoid regexp issues
-process.versions = {};
-
-function noop() {}
-
-process.on = noop;
-process.addListener = noop;
-process.once = noop;
-process.off = noop;
-process.removeListener = noop;
-process.removeAllListeners = noop;
-process.emit = noop;
-
-process.binding = function (name) {
-    throw new Error('process.binding is not supported');
-};
-
-// TODO(shtylman)
-process.cwd = function () { return '/' };
-process.chdir = function (dir) {
-    throw new Error('process.chdir is not supported');
-};
-process.umask = function() { return 0; };
-
-},{}],36:[function(require,module,exports){
+},{"process/browser.js":27}],27:[function(_dereq_,module,exports){
+module.exports=_dereq_(20)
+},{}],28:[function(_dereq_,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -6506,7 +5237,7 @@ process.umask = function() { return 0; };
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-var punycode = require('punycode');
+var punycode = _dereq_('punycode');
 
 exports.parse = urlParse;
 exports.resolve = urlResolve;
@@ -6578,7 +5309,7 @@ var protocolPattern = /^([a-z0-9.+-]+:)/i,
       'gopher:': true,
       'file:': true
     },
-    querystring = require('querystring');
+    querystring = _dereq_('querystring');
 
 function urlParse(url, parseQueryString, slashesDenoteHost) {
   if (url && isObject(url) && url instanceof Url) return url;
@@ -7193,14 +5924,14 @@ function isNullOrUndefined(arg) {
   return  arg == null;
 }
 
-},{"punycode":17,"querystring":20}],37:[function(require,module,exports){
+},{"punycode":14,"querystring":17}],29:[function(_dereq_,module,exports){
 module.exports = function isBuffer(arg) {
   return arg && typeof arg === 'object'
     && typeof arg.copy === 'function'
     && typeof arg.fill === 'function'
     && typeof arg.readUInt8 === 'function';
 }
-},{}],38:[function(require,module,exports){
+},{}],30:[function(_dereq_,module,exports){
 (function (process,global){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -7727,7 +6458,7 @@ function isPrimitive(arg) {
 }
 exports.isPrimitive = isPrimitive;
 
-exports.isBuffer = require('./support/isBuffer');
+exports.isBuffer = _dereq_('./support/isBuffer');
 
 function objectToString(o) {
   return Object.prototype.toString.call(o);
@@ -7771,7 +6502,7 @@ exports.log = function() {
  *     prototype.
  * @param {function} superCtor Constructor function to inherit prototype from.
  */
-exports.inherits = require('inherits');
+exports.inherits = _dereq_('inherits');
 
 exports._extend = function(origin, add) {
   // Don't do anything if add isn't an object
@@ -7789,10 +6520,10 @@ function hasOwnProperty(obj, prop) {
   return Object.prototype.hasOwnProperty.call(obj, prop);
 }
 
-}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./support/isBuffer":37,"_process":16,"inherits":13}],39:[function(require,module,exports){
+}).call(this,_dereq_("1YiZ5S"),typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"./support/isBuffer":29,"1YiZ5S":13,"inherits":11}],31:[function(_dereq_,module,exports){
 // Ignore module for browserify (see package.json)
-},{}],40:[function(require,module,exports){
+},{}],32:[function(_dereq_,module,exports){
 (function (process,global,__dirname){
 /**
  * A JavaScript implementation of the JSON-LD API.
@@ -9102,7 +7833,7 @@ jsonld.promises = function(options) {
   }
 
   try {
-    jsonld.Promise = global.Promise || require('es6-promise').Promise;
+    jsonld.Promise = global.Promise || _dereq_('es6-promise').Promise;
   } catch(e) {
     var f = function() {
       throw new Error('Unable to find a Promise implementation.');
@@ -9125,7 +7856,7 @@ jsonld.promises = function(options) {
 jsonld.promisify = function(op) {
   if(!jsonld.Promise) {
     try {
-      jsonld.Promise = global.Promise || require('es6-promise').Promise;
+      jsonld.Promise = global.Promise || _dereq_('es6-promise').Promise;
     } catch(e) {
       throw new Error('Unable to find a Promise implementation.');
     }
@@ -9446,8 +8177,8 @@ jsonld.documentLoaders.node = function(options) {
   options = options || {};
   var strictSSL = ('strictSSL' in options) ? options.strictSSL : true;
   var maxRedirects = ('maxRedirects' in options) ? options.maxRedirects : -1;
-  var request = require('request');
-  var http = require('http');
+  var request = _dereq_('request');
+  var http = _dereq_('http');
   var cache = new jsonld.DocumentCache();
   function loadDocument(url, redirects, callback) {
     if(url.indexOf('http:') !== 0 && url.indexOf('https:') !== 0) {
@@ -10063,7 +8794,7 @@ var JsonLdError = function(msg, type, details) {
   this.details = details || {};
 };
 if(_nodejs) {
-  require('util').inherits(JsonLdError, Error);
+  _dereq_('util').inherits(JsonLdError, Error);
 } else if(typeof Error !== 'undefined') {
   JsonLdError.prototype = new Error();
 }
@@ -14584,7 +13315,7 @@ Permutator.prototype.next = function() {
 var sha1 = jsonld.sha1 = {};
 
 if(_nodejs) {
-  var crypto = require('crypto');
+  var crypto = _dereq_('crypto');
   sha1.create = function() {
     var md = crypto.createHash('sha1');
     return {
@@ -14942,7 +13673,7 @@ _sha1.update = function(s, w, input) {
 if(!XMLSerializer) {
 
 var _defineXMLSerializer = function() {
-  XMLSerializer = require('xmldom').XMLSerializer;
+  XMLSerializer = _dereq_('xmldom').XMLSerializer;
 };
 
 } // end _defineXMLSerializer
@@ -15027,7 +13758,7 @@ if(_nodejs) {
     switch(extension) {
       case 'request':
         // use node JSON-LD request extension
-        jsonld.request = require('./request');
+        jsonld.request = _dereq_('./request');
         break;
       default:
         throw new JsonLdError(
@@ -15038,7 +13769,7 @@ if(_nodejs) {
 
   // expose version
   var _module = {exports: {}, filename: __dirname};
-  require('pkginfo')(_module, 'version');
+  _dereq_('pkginfo')(_module, 'version');
   jsonld.version = _module.exports.version;
 }
 
@@ -15066,7 +13797,7 @@ if(!_nodejs && (typeof define === 'function' && define.amd)) {
   // wrap the main jsonld API instance
   wrapper(factory);
 
-  if(typeof require === 'function' &&
+  if(typeof _dereq_ === 'function' &&
     typeof module !== 'undefined' && module.exports) {
     // export CommonJS/nodejs API
     module.exports = factory;
@@ -15086,8 +13817,8 @@ return factory;
 
 })();
 
-}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},"/node_modules/jsonld/js")
-},{"./request":39,"_process":16,"crypto":39,"es6-promise":41,"http":39,"pkginfo":42,"request":39,"util":39,"xmldom":39}],41:[function(require,module,exports){
+}).call(this,_dereq_("1YiZ5S"),typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},"/../node_modules/jsonld/js")
+},{"./request":31,"1YiZ5S":13,"crypto":31,"es6-promise":33,"http":31,"pkginfo":34,"request":31,"util":31,"xmldom":31}],33:[function(_dereq_,module,exports){
 (function (process,global){
 /*!
  * @overview es6-promise - a tiny implementation of Promises/A+.
@@ -16049,8 +14780,8 @@ return factory;
       this['ES6Promise'] = es6$promise$umd$$ES6Promise;
     }
 }).call(this);
-}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"_process":16}],42:[function(require,module,exports){
+}).call(this,_dereq_("1YiZ5S"),typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"1YiZ5S":13}],34:[function(_dereq_,module,exports){
 (function (__dirname){
 /*
  * pkginfo.js: Top-level include for the pkginfo module
@@ -16059,8 +14790,8 @@ return factory;
  *
  */
  
-var fs = require('fs'),
-    path = require('path');
+var fs = _dereq_('fs'),
+    path = _dereq_('path');
 
 //
 // ### function pkginfo ([options, 'property', 'property' ..])
@@ -16188,8 +14919,8 @@ pkginfo(module, {
   include: ['version'],
   target: pkginfo
 });
-}).call(this,"/node_modules/jsonld/node_modules/pkginfo/lib")
-},{"fs":2,"path":15}],43:[function(require,module,exports){
+}).call(this,"/../node_modules/jsonld/node_modules/pkginfo/lib")
+},{"fs":1,"path":12}],35:[function(_dereq_,module,exports){
 // **N3Lexer** tokenizes N3 documents.
 var fromCharCode = String.fromCharCode;
 var immediately = typeof setImmediate === 'function' ? setImmediate :
@@ -16573,9 +15304,9 @@ N3Lexer.prototype = {
 // Export the `N3Lexer` class as a whole.
 module.exports = N3Lexer;
 
-},{}],44:[function(require,module,exports){
+},{}],36:[function(_dereq_,module,exports){
 // **N3Parser** parses N3 documents.
-var N3Lexer = require('./N3Lexer');
+var N3Lexer = _dereq_('./N3Lexer');
 
 var RDF_PREFIX = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
     RDF_NIL    = RDF_PREFIX + 'nil',
@@ -17209,10 +15940,10 @@ function noop() {}
 // Export the `N3Parser` class as a whole.
 module.exports = N3Parser;
 
-},{"./N3Lexer":43}],45:[function(require,module,exports){
+},{"./N3Lexer":35}],37:[function(_dereq_,module,exports){
 // imports
-var SparqlParser = require("./parser");
-var Utils = require("./utils");
+var SparqlParser = _dereq_("./parser");
+var Utils = _dereq_("./utils");
 var _ = Utils;
 
 function NonSupportedSparqlFeatureError(feature, message) {
@@ -17868,10 +16599,10 @@ module.exports = {
     SparqlParserError: SparqlParserError
 };
 
-},{"./parser":51,"./utils":62}],46:[function(require,module,exports){
+},{"./parser":44,"./utils":55}],38:[function(_dereq_,module,exports){
 "use strict";
 
-var utils = require('./utils');
+var utils = _dereq_('./utils');
 var async = utils;
 var nextTick = utils.nextTick;
 
@@ -18835,14 +17566,956 @@ module.exports = {
     Tree: Tree,
     Node: Node
 };
-},{"./utils":62}],47:[function(require,module,exports){
+},{"./utils":55}],39:[function(_dereq_,module,exports){
+(function (__dirname){
+// imports
+var QueryEngine = _dereq_("./query_engine").QueryEngine;
+var InMemoryQuadBackend = _dereq_("./quad_backend").QuadBackend;
+var PersistentBackend = _dereq_("./persistent_quad_backend").QuadBackend;
+var InMemoryLexicon = _dereq_("./lexicon").Lexicon;
+var PersistentLexicon = _dereq_("./persistent_lexicon").Lexicon;
+var RDFModel = _dereq_("./rdf_model");
+var _ = _dereq_("./utils");
+
+
+/**
+ * Creates a new store.<br/>
+ * <br/>
+ * It accepts two optional arguments, a map of configuration
+ * options for the store and a callback function.<br/>
+ *
+ * @constructor
+ * @param {Function} [callback] Callback that will be invoked when the store has been created
+ * @param {Object} [params]
+ * <ul>
+ *  <li> persistent:  should the store use persistence? </li>
+ *  <li> treeOrder: in versions of the store backed by the native indexing system, the order of the BTree indices</li>
+ *  <li> name: when using persistence, the name for this store. In the MongoDB backed version, name of the DB used by the store. By default <code>'rdfstore_js'</code> is used</li>
+ *  <li> overwrite: clears the persistent storage </li>
+ *  <li> maxCacheSize: if using persistence, maximum size of the index cache </li>
+ * </ul>
+ */
+Store = function(arg1, arg2) {
+    var callback = null;
+    var params   = null;
+
+    if(arguments.length == 0) {
+        params ={};
+    } else if(arguments.length == 1) {
+        params   = {};
+        callback = arg1;
+    } else if(arguments.length > 1) {
+        params   = arg1;
+        callback = arg2;
+    } else {
+        throw("An optional argument map and a callback must be provided");
+    }
+
+    if(params['treeOrder'] == null) {
+        params['treeOrder'] = 15;
+    }
+
+    var Lexicon = InMemoryLexicon;
+    var QuadBackend = InMemoryQuadBackend;
+    if(params['persistent'] === true){
+        Lexicon = PersistentLexicon;
+        QuadBackend = PersistentBackend;
+    }
+    this.functionMap = {};
+
+    var that = this;
+    this.customFns = {};
+    new Lexicon(function(lexicon){
+        var createQuadBackend = function() {
+            new QuadBackend(params, function (backend) {
+                /*
+                 if(params['overwrite'] === true) {
+                 // delete index values
+                 backend.clear();
+                 }
+                 */
+                var createEngine = function() {
+                    params.backend = backend;
+                    params.lexicon = lexicon;
+                    that.engine = new QueryEngine(params);
+
+                    callback(null, that);
+                }
+                if(params['overwrite']) {
+                    backend.clear(createEngine)
+                } else {
+                    createEngine();
+                }
+            });
+        }
+        if(params['overwrite'] === true) {
+            // delete lexicon values
+            lexicon.clear(createQuadBackend);
+        } else {
+            createQuadBackend();
+        }
+
+    },params['name']);
+};
+
+
+/**
+ * An instance of RDF JS Interface <code>RDFEnvironment</code>
+ * associated to this graph instance.
+ */
+Store.prototype.rdf = RDFModel.rdf;
+Store.prototype.rdf.api = RDFModel;
+
+/**
+ * Registers a new function with an associated name that can
+ * be invoked as 'custom:fn_name(arg1,arg2,...,argn)' inside
+ * a SPARQL query.
+ * <br/>
+ * The registered function will receive two arguments, an
+ * instance of the store's query filters engine and a list
+ * with the arguments received by the function in the SPARQL query.
+ * <br/>
+ * The function must return a single token value that can
+ * consist in a literal value or an URI.
+ * <br/>
+ * The following is an example literal value:
+ * {token: 'literal', type:"http://www.w3.org/2001/XMLSchema#integer", value:'3'}
+ * This is an example URI value:
+ * {token: 'uri', value:'http://test.com/my_uri'}
+ * <br/>
+ * The query filters engine can be used to perform common operations
+ * on the input values.
+ * An error can be returne dusing the 'ebvError' function of the engine.
+ * True and false values can be built directly using the 'ebvTrue' and
+ * 'ebvFalse' functions.
+ *
+ * A complete reference of the available functions can be found in the
+ * documentation or source code of the QueryFilters module.
+ *
+ * @arguments:
+ * @param {String} [name]: name of the custom function, it will be accesible as custom:name in the query
+ * @param {Function} [function]: lambda function with the code for the query custom function.
+ */
+Store.prototype.registerCustomFunction = function(name, fn) {
+    this.customFns[name] = fn;
+    this.engine.setCustomFunctions(this.customFns);
+};
+
+/**
+ * Executes a query in the store.<br/>
+ * <br/>
+ * There are two possible ways of invoking this function,
+ * providing a pair of arrays of namespaces that will be
+ * used to compute the union of the default and named
+ * dataset, or without them.
+ * <br/>
+ * <br/>
+ * Both invocations receive as an optional last parameter
+ * a callback function that will receive the return status
+ * of the query and the results.
+ * <br/>
+ * <br/>
+ * Results can have different formats:
+ * <ul>
+ *  <li> SELECT queries: array of binding maps </li>
+ *  <li> CONSTRUCT queries: RDF JS Interface Graph object </li>
+ *  <li> ASK queries: JS boolean value </li>
+ *  <li> LOAD/INSERT... queries: Number of triples modified/inserted </li>
+ * </ul>
+ *
+ * @arguments:
+ * @param {String} query
+ * @param {String} [defaultURIs] default namespaces
+ * @param {String} [namespacesURIs] named namespaces
+ * @param {Function} [callback]
+ */
+Store.prototype.execute = function() {
+    if(arguments.length === 3) {
+        this.executeWithEnvironment(arguments[0],
+            arguments[1],
+            arguments[2]);
+    } else if(arguments.length === 4) {
+        this.executeWithEnvironment(arguments[0],
+            arguments[1],
+            arguments[2],
+            arguments[3]);
+    } else {
+
+        var queryString;
+        var callback;
+
+        if(arguments.length === 1) {
+            queryString = arguments[0];
+            var callback = function(){};
+        } else if(arguments.length === 2) {
+            queryString = arguments[0];
+            callback = arguments [1];
+        }
+        this.engine.execute(queryString, callback);
+    }
+};
+
+/**
+ * A variation of the execute function that expects
+ * arguments containing values for the default and named
+ * graphs that will be used in the query.
+ *
+ *
+ * @arguments:
+ * @param {String} query
+ * @param {String} URIs default namespaces
+ * @param {String} URIs named namespaces
+ * @param {Function} [callback]
+ */
+Store.prototype.executeWithEnvironment = function() {
+    var queryString, defaultGraphs, namedGraphs;
+
+    if(arguments.length === 3) {
+        queryString   = arguments[0];
+        // JSDoc fails if this is pushed outside
+        var callback  = function(){};
+        defaultGraphs = arguments[1];
+        namedGraphs   = arguments[2];
+    } else if(arguments.length === 4) {
+        queryString   = arguments[0];
+        var callback      = arguments [3];
+        defaultGraphs = arguments[1];
+        namedGraphs   = arguments[2];
+    }
+
+    defaultGraphs = _.map(defaultGraphs, function(graph){
+        return {'token':'uri','value':graph};
+    });
+    namedGraphs = _.map(namedGraphs, function(graph){
+        return {'token':'uri','value':graph};
+    });
+
+    this.engine.execute(queryString, callback, defaultGraphs, namedGraphs);
+};
+
+/**
+ * Retrieves all the quads belonging to a certain graph
+ * in the store as a RDF JS Interface Graph object.<br/>
+ * <br/>
+ * The function accepts as mandatory parameter a callback
+ * function that will receive the a success notification and the returned graph.<br/>
+ * <br/>
+ * Optionally, the URI of the graph can also be passed as
+ * the first argument. If no graph is specified, the
+ * default graph will be returned.<br/>
+ *
+ * @arguments
+ * @param {String} [graphURI] If this parameter is missing, the default graph will be returned
+ * @param {Functon} callback
+ */
+Store.prototype.graph = function() {
+    var graphUri = null;
+    var callback = null;
+    if(arguments.length === 1) {
+        callback = arguments[0] || function(){};
+        graphUri = this.engine.lexicon.defaultGraphUri;
+    } else if(arguments.length === 2) {
+        callback = arguments[1] || function(){};
+        graphUri = arguments[0];
+    } else {
+        throw("An optional graph URI and a callback function must be provided");
+    }
+
+    if(this.rdf.resolve(graphUri) != null) {
+        graphUri = this.rdf.resolve(graphUri);
+    }
+
+    this.engine.execute("CONSTRUCT { ?s ?p ?o } WHERE { GRAPH <" + graphUri + "> { ?s ?p ?o } }", callback);
+};
+
+/**
+ * Retrieves all the quads belonging to a certain node
+ * in the store as a RDF JS Interface Graph object containing
+ * the collection of triples whose subject is the provided
+ * node URI.<br/>
+ * <br/>
+ * The function accepts as mandatory parameters the node URI and
+ * a callback unction that will receive a success notification and the returned node.<br/>
+ * <br/>
+ * Optionally, the URI of the graph where the node is contained
+ * can also be passed as the first argument. <br/>
+ * <br/>
+ * If no graph is specified, the node will be looked into the
+ * default graph.<br/>
+ *
+ * @arguments
+ * @param {String} nodeURI URI of the node to look for
+ * @param {String} [graphURI] If this parameter is missing, the node will be looked into the default graph
+ * @param {Functon} callback
+ */
+Store.prototype.node = function() {
+    var graphUri = null;
+    var callback = null;
+    var nodeUri  = null;
+    if(arguments.length === 2) {
+        nodeUri = arguments[0];
+        callback = arguments[1] || function(){};
+        graphUri = this.engine.lexicon.defaultGraphUri;
+    } else if(arguments.length === 3) {
+        nodeUri = arguments[0];
+        graphUri = arguments[1];
+        callback = arguments[2] || function(){};
+    } else {
+        throw("An optional graph URI, node URI and a callback function must be provided");
+    }
+
+    if(this.rdf.resolve(graphUri) != null) {
+        graphUri = this.rdf.resolve(graphUri);
+    }
+
+    if(this.rdf.resolve(nodeUri) != null) {
+        nodeUri = this.rdf.resolve(nodeUri);
+    }
+
+    this.engine.execute("CONSTRUCT { <" + nodeUri + "> ?p ?o } WHERE { GRAPH <" + graphUri + "> { <" + nodeUri + "> ?p ?o } }", callback);
+};
+
+/**
+ * Associates an event listener function to a node URI. Every time the collection
+ * of triples whose subject is the specified node URI changes, because an
+ * insertion or deletion, the provided callback function will be invoked
+ * receiving as a parameter a RDF JS Interface Graph object with the new
+ * collection of triples.<br/>
+ * <br/>
+ * The function accepts two mandatory arguments, the URI of the node to observe
+ * and the function that will receive the event notifications. An optional
+ * third parameter, consisting of a callback function, can be passed and will be invoked
+ * once the store had correctly configured the event listener.<br/>
+ *<br/>
+ * LOAD queries, batch loading data into the store, do not
+ * trigger events by default. If you wish to be notified
+ * by changes triggered by this kind of queries, invoke
+ * the *setBatchLoadEvents* function with a true argument.<br/>
+ *<br/>
+ * The event listener function can be removed using the stopObservingNode function.
+ *
+ * @arguments
+ * @param {String} nodeURI URI of the node to observe
+ * @param {Function} eventListener Function that will be notified with the events
+ * @param {Function} [callback] Function that will be invoked, once the event listener had been correctly set up.
+ */
+Store.prototype.startObservingNode = function() {
+    var uri, graphUri, callback;
+
+    if(arguments.length === 2) {
+        uri = arguments[0];
+        callback = arguments[1];
+        this.engine.callbacksBackend.observeNode(uri, callback, function(){});
+    } else if(arguments.length === 3) {
+        uri = arguments[0];
+        graphUri = arguments[1];
+        callback = arguments[2];
+        this.engine.callbacksBackend.observeNode(uri, graphUri, callback, function(){});
+    }
+};
+
+/**
+ * Removes a callback function associated to a node.<br/>
+ * The event listener function object must be passed as an argument.<br/>
+ *
+ * @arguments
+ * @param {Function} eventListener The event listener function to remove, the same passed as an argument to startObservingNode
+ */
+Store.prototype.stopObservingNode = function(callback) {
+    this.engine.callbacksBackend.stopObservingNode(callback);
+};
+
+/**
+ * Associates an event listener function to a SPARQL SELECT or
+ * CONSTRUCT query.<br/>
+ * Every time an update (insert, delete...) query modified the
+ * triples in the store in a way that modifies the output of the
+ * query, the event listener will be invoked with an updated
+ * result.<br/>
+ *<br/>
+ * LOAD queries, batch loading data into the store, do not
+ * trigger events by default. If you wish to be notified
+ * by changes triggered by this kind of queries, invoke
+ * the <code>setBatchLoadEvents</code> function with a true argument.<br/>
+ *<br/>
+ * The event listener function can be removed invoking the
+ * <code>stopObservingQuery</code> function.
+ *
+ * @arguments
+ * @param {String} query SELECT or CONSTRUCT SPARQL query
+ * @param {Function} eventListener the function that will receive the notifications
+ * @param {Function} [callback] optional function that will be invoked when the stored had set up the event listener function.
+ */
+Store.prototype.startObservingQuery = function() {
+    var query = arguments[0];
+    var callback = arguments[1];
+    var endCallback = arguments[2];
+    if(endCallback!=null) {
+        this.engine.callbacksBackend.observeQuery(query, callback, endCallback);
+    } else {
+        this.engine.callbacksBackend.observeQuery(query, callback, function(){});
+    }
+};
+
+/**
+ * Removes a callback function associated to a SPARQL query.<br/>
+ * The event listener function object must be passed as an argument.
+ *
+ * @arguments
+ * @param {Function} eventListener The event listener function to remove, the same passed as an argument to startObservingQuery
+ */
+Store.prototype.stopObservingQuery = function(query) {
+    this.engine.callbacksBackend.stopObservingQuery(query);
+};
+
+/**
+ * Associates an event listener to a pattern expressed as the
+ * subject, predicate, object and graph string parameters passed
+ * to the function. To match any value in that position, a <code>null</code>
+ * value can be passed as an argument. e.g. <code>subscribe(null, null, null, g, cb)</code>,
+ * will be notified with any change in the g graph.<br/>
+ * The graph component of the pattern does not support a <code>null</code> value.<br/>
+ *<br/>
+ * Results will be notified as an Array of RDF JS Interface
+ * <code>Triple</code> objects.<br/>
+ *<br/>
+ * LOAD queries, batch loading data into the store, do not
+ * trigger events by default. If you wish to be notified
+ * by changes triggered by this kind of queries, invoke
+ * the <code>setBatchLoadEvents</code> function with a true argument.
+ *
+ * @arguments
+ * @param {String} s subject or null for any subject
+ * @param {String} p predicate or null for any predicate
+ * @param {String} o object or null for any object
+ * @param {String} g graph or null for any graph
+ * @param {Function} event listener function that will be notified when a change occurs
+ */
+Store.prototype.subscribe = function(s, p, o, g, callback) {
+    var that = this;
+    var adapterCb = function(event,triples){
+        var acum = [];
+        var queryEnv = {blanks:{}, outCache:{}};
+        var bindings = [];
+
+        _.each(triples, function(triple){
+            var s = RDFModel.buildRDFResource(triple.subject,bindings,that.engine,queryEnv);
+            var p = RDFModel.buildRDFResource(triple.predicate,bindings,that.engine,queryEnv);
+            var o = RDFModel.buildRDFResource(triple.object,bindings,that.engine,queryEnv);
+            if(s!=null && p!=null && o!=null) {
+                triple = new RDFModel.Triple(s,p,o);
+                acum.push(triple);
+            }
+        });
+
+        callback(event,acum);
+    };
+
+    this.functionMap[callback] = adapterCb;
+    this.engine.callbacksBackend.subscribe(s,p,o,g,adapterCb,function(){});
+};
+
+/**
+ * Removes an event listener associated to a certain pattern.
+ * The function passed as an argument to <code>subscribe</code> must be
+ * passed as an argument.
+ *
+ * @arguments
+ * @param {Function} callback The event listener to be removed
+ */
+Store.prototype.unsubscribe = function(callback) {
+    var adapterCb = this.functionMap[callback];
+    this.engine.callbacksBackend.unsubscribe(adapterCb);
+    delete this.functionMap[callback];
+};
+
+/**
+ * Register a combination of prefix and URI fragment in the default instance
+ * of the RDF JS Interface API <code>RDFEnvironment</code> object associated
+ * to the store and available through the <code>storeInstance.rdf</code> property.
+ *
+ * @arguments
+ * @param {String} prefix The prefix to be associated
+ * @param {String} URIFragment URI fragment the provided prefix will be resolved
+ */
+Store.prototype.setPrefix = function(prefix, uri) {
+    this.rdf.setPrefix(prefix, uri);
+};
+
+/**
+ * Defines the URI that will be used by default by the RDF JS Interface
+ * API <code>RDFEnvironment</code> object associated to the store and available
+ * through the <code>storeInstance.rdf</code> property.
+ *
+ * @arguments
+ * @param {String} URIFragment The URI fragment will be used by default
+ */
+Store.prototype.setDefaultPrefix = function(uri) {
+    this.rdf.setDefaultPrefix(uri);
+};
+
+/**
+ * Inserts a RDF JS Interface API <code>Graph</code> object into the store.
+ * The function receives a mandatory <code>Graph</code> object whose triples
+ * will be inserted. Optionally, a URI string for a graph and a
+ * callback function can be passed as arguments.<br/>
+ * <br/>
+ * If no graph URI is specified, triples will be inserted into the
+ * default graph.<br/>
+ * <br/>
+ * If the callback function is specified, it will be invoked when all the
+ * triples had been inserted into the store.<br/>
+ *
+ * @arguments
+ * @param {RDFModel.Graph} triples a RDF JS Interface <code>Graph</code> object
+ * @param {String} [graphURI] URI of the graph where the triples will be inserted. If it is missing, triples will be inserted in the default graph
+ * @param {String} [callback] A callback function that will be invoked with a success notification and the number of triples inserted
+ */
+Store.prototype.insert = function() {
+    var graph;
+    var triples;
+    var callback;
+    if(arguments.length === 1) {
+        triples = arguments[0];
+        callback= function(){};
+    } else if(arguments.length === 2) {
+        triples = arguments[0];
+        callback= arguments[1] || function(){};
+    } else if(arguments.length === 3) {
+        triples = arguments[0];
+        graph = this.rdf.createNamedNode(arguments[1]);
+        callback= arguments[2] || function(){};
+    } else {
+        throw("The triples to insert, an optional graph and callback must be provided");
+    }
+
+    var query = "";
+    var that = this;
+    triples.forEach(function(triple) {
+        query = query + that._nodeToQuery(triple.subject) + that._nodeToQuery(triple.predicate) + that._nodeToQuery(triple.object) + ".";
+    });
+
+    if(graph != null) {
+        query = "INSERT DATA { GRAPH " + this._nodeToQuery(graph) +" { "+ query + " } }";
+    } else {
+        query = "INSERT DATA { "+ query + " }";
+    }
+
+    this.engine.execute(query, callback);
+};
+
+Store.prototype._nodeToQuery = function(term) {
+    if(term.interfaceName === 'NamedNode') {
+        var resolvedUri = this.rdf.resolve(term.valueOf());
+        if(resolvedUri != null) {
+            return "<" + resolvedUri + ">";
+        } else {
+            return "<" + term.valueOf() + ">";
+        }
+    } else {
+        return term.toString();
+    }
+};
+
+/**
+ * Removes the triples in a RDF JS Interface API <code>Graph</code> object from the store.
+ * The function receives a mandatory <code>Graph</code> object whose triples
+ * will be removed. Optionally, a URI string for a graph and a
+ * callback function can be passed as arguments.<br/>
+ * <br/>
+ * If no graph URI is specified, triples will be removed from the
+ * default graph.<br/>
+ * <br/>
+ * If the callback function is specified, it will be invoked when all the
+ * triples had been removed from the store.
+ *
+ * @arguments
+ * @param {RDFModel.Graph} triples a RDF JS Interface <code>Graph</code> object
+ * @param {String} [graphURI] URI of the graph where the triples will be removed from. If it is missing, triples will be removed from the default graph
+ * @param {String} [callback] A callback function that will be invoked with a success notification
+ */
+Store.prototype.delete = function() {
+
+    var graph;
+    var triples;
+    var callback;
+    if(arguments.length === 1) {
+        triples = arguments[0];
+        callback= function(){};
+    } else if(arguments.length === 2) {
+        triples = arguments[0];
+        callback= arguments[1] || function(){};
+    } else if(arguments.length === 3) {
+        triples = arguments[0];
+        graph = this.rdf.createNamedNode(arguments[1]);
+        callback= arguments[2] || function(){};
+    } else {
+        throw("The triples to delete, an optional graph and callback must be provided");
+    }
+
+    var query = "";
+    var that = this;
+    triples.forEach(function(triple) {
+        query = query + that._nodeToQuery(triple.subject) + that._nodeToQuery(triple.predicate) + that._nodeToQuery(triple.object) + ".";
+    });
+
+    if(graph != null) {
+        query = "DELETE DATA { GRAPH " + this._nodeToQuery(graph) +" { "+ query + " } }";
+    } else {
+        query = "DELETE DATA { "+ query + " }";
+    }
+
+    this.engine.execute(query, callback);
+};
+
+/**
+ * Removes all the triples stored in a graph.
+ *
+ * The URI of the graph and a callback function can be
+ * optinally passed as parameters.<br/>
+ * <br/>
+ * If no graph URI is specified, all triples in the
+ * default graph will be removed.
+ *
+ * @arguments
+ * @param {String} [graph] the URI of the graph the triples must be removed from
+ * @param {Function} [callback] a function that will be invoked with a success notification
+ */
+Store.prototype.clear = function() {
+    var graph;
+    var callback;
+
+    if(arguments.length === 0) {
+        graph = this.rdf.createNamedNode(this.engine.lexicon.defaultGraphUri);
+        var callback= function(){};
+    } else if(arguments.length === 1) {
+        graph = this.rdf.createNamedNode(this.engine.lexicon.defaultGraphUri);
+        callback= arguments[0] || function(){};
+    } else if(arguments.length === 2) {
+        graph = this.rdf.createNamedNode(arguments[0]);
+        callback= arguments[1] || function(){};
+    } else {
+        throw("The optional graph and a callback must be provided");
+    }
+
+    var query = "CLEAR GRAPH " + this._nodeToQuery(graph);
+    this.engine.execute(query, callback);
+};
+
+/**
+ * Boolean value determining if loading RDF must produce
+ * triple add events and fire callbacks.<br/>
+ * Default value is false.
+ *
+ * @arguments
+ * @param {boolean} mustFireEvents true/false value.
+ */
+Store.prototype.setBatchLoadEvents = function(mustFireEvents){
+    this.engine.eventsOnBatchLoad = mustFireEvents;
+};
+
+/**
+ * Registers a namespace prefix that will be automatically declared
+ * in all the queries.<br/>
+ * <br/>
+ * The prefix will also be inserte in the default <code>RDFEnvironment</code> object
+ * associated to the <code>rdf</code> property of the store instance.
+ *
+ * @arguments
+ * @param {String} ns the name space to be regsitered
+ * @param {String} prefix the URI fragment associated to the name space
+ */
+Store.prototype.registerDefaultNamespace = function(ns, prefix) {
+    this.rdf.prefixes.set(ns,prefix);
+    this.engine.registerDefaultNamespace(ns,prefix);
+};
+
+/**
+ * Registers the default namespaces declared in the RDF JS Interfaces
+ * specification in the default Profile.
+ */
+Store.prototype.registerDefaultProfileNamespaces = function() {
+    var defaultNsMap = this.rdf.prefixes.values();
+    for (var p in defaultNsMap) {
+        this.registerDefaultNamespace(p,defaultNsMap[p]);
+    }
+};
+
+/**
+ * Load triples into a graph in the store. Data can be passed directly to the method
+ * or a remote URI speifying where the data is located can be used.<br/>
+ *<br/>
+ * If the data is passed directly to the load function, the media type stating the format
+ * of the data must also be passed to the function.<br/>
+ *<br/>
+ * If an URI is passed as a parameter, the store will attempt to perform content negotiation
+ * with the remote server and get a representation for the RDF data matching one of the
+ * the RDF parsers registered in the store. In this case, the media type parameter must be
+ * set to the <code>'remote'</code> value.<br/>
+ *<br/>
+ * An additional URI for the graph where the parsed data will be loaded and a callback function
+ * can be also passed as parameters. If no graph is specified, triples will be loaded in the
+ * default graph.<br/>
+ *<br/>
+ * By default loading data will not trigger notification through the events API. If events needs to
+ * be trigger, the functio <code>setBatchLoadEvents</code> must be invoked with a true parameter.
+ *
+ * @arguments
+ * @param {String} mediaType Media type (application/json, text/n3...) of the data to be parsed or the value <code>'remote'</code> if a URI for the data is passed instead
+ * @param {String} data RDF data to be parsed and loaded or an URI where the data will be retrieved after performing content negotiation
+ * @param {String} [graph] Graph where the parsed triples will be inserted. If it is not specified, triples will be loaded in the default graph
+ * @param {Function} callback that will be invoked with a success notification and the number of triples loaded.
+ */
+Store.prototype.load = function(){
+    var mediaType;
+    var data;
+    var graph;
+    var callback;
+    var options = {};
+
+    if(arguments.length === 3) {
+        graph = this.rdf.createNamedNode(this.engine.lexicon.defaultGraphUri);
+        mediaType = arguments[0];
+        data = arguments[1];
+        callback= arguments[2] || function(){};
+    } else if(arguments.length === 4) {
+        mediaType = arguments[0];
+        data = arguments[1];
+        options = arguments[2];
+        if(typeof(options) === 'string') {
+            graph = this.rdf.createNamedNode(options);
+            options = {};
+        } else {
+            graph = this.rdf.createNamedNode(options.graph || this.engine.lexicon.defaultGraphUri);
+            delete options['graph'];
+        }
+        callback= arguments[3] || function(){};
+    } else if(arguments.length === 2) {
+        throw("The mediaType of the parser, the data a callback and an optional graph must be provided");
+    }
+
+    if(mediaType === 'remote') {
+        data = this.rdf.createNamedNode(data);
+        var query = "LOAD <"+data.valueOf()+"> INTO GRAPH <"+graph.valueOf()+">";
+        this.engine.execute(query, callback);
+    } else {
+
+        var that = this;
+
+        var parser = this.engine.rdfLoader.parsers[mediaType];
+
+        if (!parser) return callback(new Error("Cannot find parser for the provided media type:"+mediaType));
+
+        var cb = function(err, quads) {
+            if(err) {
+                callback(err, quads);
+            } else {
+                that.engine.batchLoad(quads,function(success){
+                    if(success != null){
+                        callback(null,success);
+                    } else {
+                        callback(new Error("Erro batch-loading triples."));
+                    }
+                });
+            }
+        };
+
+        var args = [parser, {'token':'uri', 'value':graph.valueOf()}, data, options, cb];
+
+        if(data && typeof(data)==='string' && data.indexOf('file://')=== 0) {
+            this.engine.rdfLoader.loadFromFile.apply(null, args);
+        } else {
+            this.engine.rdfLoader.tryToParse.apply(null, args);
+        }
+    }
+};
+
+/**
+ * Registers a new parser associated to the provided media type. If there is a parser already registered for
+ * that media type, the new parser will replace the old one.<br/>
+ *<br/>
+ * Parsers must implement a function *parse* accepting the data to be parsed as the
+ * first parameter and the destination graph URI as the second one.
+ * They must return an array of objects with properties: 'subject', 'predicate', 'object'
+ * and 'graph' containing lexical representations for these values:
+ *<br/>
+ *<ul>
+ * <li><code>{literal: '"literal"'}</code></li>
+ * <li><code>{literal: ''"literal"^^<datatype>'}</code></li>
+ * <li><code>{literal: '"literal"@lang'}</code></li>
+ * <li><code>{uri: 'uri'}</code></li>
+ * <li><code>{blank: '_:label'}</code></li>
+ *</ul>
+ *<br/>
+ * The provided media type will be used to perform content negotiation when dealing with remote
+ * resources, or to select the parser in the <code>load</code> function.
+ *
+ * @arguments
+ * @param {String} mediaType the media type for this parser
+ * @param {String} parser an object containing the *parse* function with the parser logic
+ */
+Store.prototype.registerParser = function(mediaType, parser) {
+    this.engine.rdfLoader.registerParser(mediaType,parser);
+};
+
+/**
+ * Returns the URI of all the graphs currently contained
+ * in the store
+ *
+ * @arguments:
+ * @param {Function} callback function that will receive a success notification and the array of graph URIs
+ */
+Store.prototype.registeredGraphs = function(callback) {
+    this.engine.lexicon.registeredGraphs(true, function(graphs){
+        var graphNodes = _.map(graphs, function(graph){
+            return new RDFModel.NamedNode(graph);
+        });
+
+        callback(null, graphNodes);
+    });
+};
+
+/**
+ * Returns the current network transport being used by the
+ * the store.
+ *
+ * The default transport uses TCP sockets in the Node.js version
+ * and relies on jQuery in the browser version. This can be overriden
+ * using the <code>setNetworkTransport</code> function.
+ */
+Store.prototype.getNetworkTransport = function() {
+    return NetworkTransport;
+};
+
+/**
+ * Sets the network transport used by the store.<br/>
+ * <br/>
+ * Network transport consist of an object implementing the <code>load</code>
+ * function, receiving the URI to load, a string with the value
+ * of the HTTP 'Accept' header for the store registered parsers,
+ * a callback function where the retrieved data and the success notification
+ * must be returned.<br/>
+ *<br/>
+ * Different examples with implementations of different transports can be found
+ * in the source code of the store:
+ *<ul>
+ * <li>src/js-communication/src/tcp_transport.js</li>
+ * <li>src/js-communication/src/ajax_transport.js</li>
+ *</ul>
+ * @arguments
+ * @param networkTransportImpl object implementing the transport *load* function.
+ */
+Store.prototype.setNetworkTransport = function(networkTransportImpl) {
+    NetworkTransport = networkTransportImpl;
+};
+
+
+/**
+ * Clean-up function releasing all temporary resources held by the
+ * store instance.
+ */
+Store.prototype.close = function(cb) {
+    if(cb == null)
+        cb = function(){};
+    if(this.engine.close)
+        this.engine.close(cb);
+    else
+        cb();
+};
+
+/**
+ * Version of the store
+ */
+Store.VERSION = "0.9.6";
+
+/**
+ * Create a new RDFStore instance that will be
+ * executed in a web worker in the browser or a new process
+ * in Node.js.
+ * <br/>
+ * <br/>
+ * The first argument to this function is the URL/FS location
+ * of the store script.
+ * <br/>
+ * <br/>
+ * This parameter is mandatory in the browser. It is safe to
+ * ignore this parameter in Node.js.
+ * <br/>
+ * <br/>
+ * If support for web workers is not present, a regular
+ * store object will be initialized and returned.
+ * <br/>
+ * <br/>
+ *
+ * @param {String} [scriptPath] URL of the RDFStore script
+ * @param {Object[]} [args] Arguments to be passed to the store that will be created
+ * @param {Function} callback Callback function that will be invoked with an error flag and the connection/store object.
+ */
+var connect = function() {
+    var path, args, callback;
+    if(arguments.length == 1) {
+        path = __dirname;
+        args = {};
+        callback = arguments[0];
+    } else if(arguments.length == 2) {
+        if(typeof(arguments[0]) === 'string') {
+            path = arguments[0];
+            args = {};
+        } else {
+            path = __dirname+"/index.js";
+            args = arguments[0];
+        }
+        callback = arguments[1];
+    } else {
+        path = arguments[0];
+        args = arguments[1];
+        callback = arguments[2];
+    }
+    callback(new Error("Store#connect is not supported in the 1.x series of the library"));
+};
+
+/**
+ * Creates a new instance of the store.
+ *
+ * The function accepts two optional arguments.
+ * <br/>
+ * If only one argument is passed it must be a
+ * callback function that will be invoked when the
+ * store had been created.<br/>
+ * <br/>
+ * If two arguments are passed the first one must
+ * be a map of configuration parameters for the
+ * store, and the second one the callback function.<br/>
+ * <br/>
+ * Take a look at the Store constructor function for
+ * a detailed list of possible configuration parameters.<br/>
+ *
+ * @param {Object[]} [args] Arguments to be passed to the store that will be created
+ * @param {Function} [callback] Callback function that will be invoked with an error flag and the connection/store object.
+ */
+var create = function(){
+    if(arguments.length == 1) {
+        return new Store(arguments[0]);
+    } else if(arguments.length == 2) {
+        return new Store(arguments[0], arguments[1]);
+    } else {
+        return new Store();
+    };
+};
+
+module.exports.Store = Store;
+module.exports.create = create;
+module.exports.connect = connect;
+
+}).call(this,"/")
+},{"./lexicon":42,"./persistent_lexicon":45,"./persistent_quad_backend":46,"./quad_backend":47,"./query_engine":49,"./rdf_model":53,"./utils":55}],40:[function(_dereq_,module,exports){
 //imports
-var _ = require('./utils');
-var async = require('./utils');
-var QuadIndex = require('./quad_index').QuadIndex;
-var Pattern = require('./quad_index').Pattern;
-var RDFModel = require('./rdf_model');
-var AbstractQueryTree = require('./abstract_query_tree').AbstractQueryTree;
+var _ = _dereq_('./utils');
+var async = _dereq_('./utils');
+var QuadIndex = _dereq_('./quad_index').QuadIndex;
+var Pattern = _dereq_('./quad_index').Pattern;
+var RDFModel = _dereq_('./rdf_model');
+var AbstractQueryTree = _dereq_('./abstract_query_tree').AbstractQueryTree;
 
 Callbacks = {};
 
@@ -18868,12 +18541,12 @@ Callbacks.CallbacksBackend = function() {
     this.updateInProgress = null;
     this.indices = ['SPOG', 'GP', 'OGS', 'POG', 'GSP', 'OS'];
     this.componentOrders = {
-        SPOG: ['subject', 'predicate', 'object', 'graph'],
-        GP: ['graph', 'predicate', 'subject', 'object'],
-        OGS: ['object', 'graph', 'subject', 'predicate'],
-        POG: ['predicate', 'object', 'graph', 'subject'],
-        GSP: ['graph', 'subject', 'predicate', 'object'],
-        OS: ['object', 'subject', 'predicate', 'graph']
+	SPOG: ['subject', 'predicate', 'object', 'graph'],
+	GP: ['graph', 'predicate', 'subject', 'object'],
+	OGS: ['object', 'graph', 'subject', 'predicate'],
+	POG: ['predicate', 'object', 'graph', 'subject'],
+	GSP: ['graph', 'subject', 'predicate', 'object'],
+	OS: ['object', 'subject', 'predicate', 'graph']
     };
 
     this.callbackCounter = 0;
@@ -18886,22 +18559,22 @@ Callbacks.CallbacksBackend = function() {
     this.queriesInverseMap = {};
 
     for(var i=0; i<this.indices.length; i++) {
-        var indexKey = this.indices[i];
-        this.indexMap[indexKey] = {};
-        this.queriesIndexMap[indexKey] = {};
+	var indexKey = this.indices[i];
+	this.indexMap[indexKey] = {};
+	this.queriesIndexMap[indexKey] = {};
     }
 };
 
 Callbacks.CallbacksBackend.prototype.startGraphModification = function() {
     if(this.ongoingModification !== true) {
-        this.pendingQueries = [].concat(this.queriesList);
-        this.matchedQueries = [];
+	this.pendingQueries = [].concat(this.queriesList);
+	this.matchedQueries = [];
 
-        if (this.updateInProgress == null) {
-            this.updateInProgress = {};
-            this.updateInProgress[Callbacks['added']] = [];
-            this.updateInProgress[Callbacks['deleted']] = [];
-        }
+	if (this.updateInProgress == null) {
+	    this.updateInProgress = {};
+	    this.updateInProgress[Callbacks['added']] = [];
+	    this.updateInProgress[Callbacks['deleted']] = [];
+	}
     }
 };
 
@@ -18911,79 +18584,79 @@ Callbacks.CallbacksBackend.prototype.nextGraphModification = function(event, qua
 
 Callbacks.CallbacksBackend.prototype.endGraphModification = function(callback) {
     if(this.ongoingModification !== true) {
-        var that = this;
-        if (this.updateInProgress != null) {
-            var tmp = that.updateInProgress;
-            that.updateInProgress = null;
-            this.sendNotification(Callbacks['deleted'], tmp[Callbacks['deleted']], function () {
-                that.sendNotification(Callbacks['added'], tmp[Callbacks['added']], function () {
-                    that.sendEmptyNotification(Callbacks['eventsFlushed'], null, function () {
-                        that.dispatchQueries(function () {
-                            callback(true);
-                        });
-                    });
-                });
-            });
-        } else {
-            callback(true);
-        }
+	var that = this;
+	if (this.updateInProgress != null) {
+	    var tmp = that.updateInProgress;
+	    that.updateInProgress = null;
+	    this.sendNotification(Callbacks['deleted'], tmp[Callbacks['deleted']], function () {
+		that.sendNotification(Callbacks['added'], tmp[Callbacks['added']], function () {
+		    that.sendEmptyNotification(Callbacks['eventsFlushed'], null, function () {
+			that.dispatchQueries(function () {
+			    callback(true);
+			});
+		    });
+		});
+	    });
+	} else {
+	    callback(true);
+	}
     } else {
-        callback(true);
+	callback(true);
     }
 };
 
 Callbacks.CallbacksBackend.prototype.cancelGraphModification = function() {
     if(this.ongoingModification !== true) {
-        this.updateInProgress = null;
+	this.updateInProgress = null;
     }
 };
 
 Callbacks.CallbacksBackend.prototype.sendNotification = function(event, quadsPairs, doneCallback) {
     var notificationsMap = {};
     for(var i=0; i<quadsPairs.length; i++) {
-        var quadPair = quadsPairs[i];
-        for(var indexKey in this.indexMap) {
-            var index = this.indexMap[indexKey];
-            var order = this.componentOrders[indexKey];
-            this._searchCallbacksInIndex(index, order, event, quadPair, notificationsMap);
-            if(this.pendingQueries.length != 0) {
-                index = this.queriesIndexMap[indexKey];
-                this._searchQueriesInIndex(index, order, quadPair);
-            }
-        }
+	var quadPair = quadsPairs[i];
+	for(var indexKey in this.indexMap) {
+	    var index = this.indexMap[indexKey];
+	    var order = this.componentOrders[indexKey];
+	    this._searchCallbacksInIndex(index, order, event, quadPair, notificationsMap);
+	    if(this.pendingQueries.length != 0) {
+		index = this.queriesIndexMap[indexKey];
+		this._searchQueriesInIndex(index, order, quadPair);
+	    }
+	}
     }
 
     this.dispatchNotifications(notificationsMap);
 
     if(doneCallback != null)
-        doneCallback(true);
+	doneCallback(true);
 };
 
 Callbacks.CallbacksBackend.prototype.sendEmptyNotification = function(event, value, doneCallback) {
     var callbacks = this.emptyNotificationsMap[event] || [];
     for(var i=0; i<callbacks.length; i++) {
-        callbacks[i](event, value);
+	callbacks[i](event, value);
     }
     doneCallback();
 };
 
 Callbacks.CallbacksBackend.prototype.dispatchNotifications = function(notificationsMap) {
     for(var callbackId in notificationsMap) {
-        var callback = this.callbacksMap[callbackId];
-        var deleted = notificationsMap[callbackId][Callbacks['deleted']];
-        if(deleted!=null) {
-            try {
-                callback(Callbacks['deleted'],deleted);
-            }catch(e){}
-        }
-        for(var event in notificationsMap[callbackId]) {
-            if(event!=Callbacks['deleted']) {
-                try{
-                    callback(event, notificationsMap[callbackId][event]);
-                }catch(e){}
+	var callback = this.callbacksMap[callbackId];
+	var deleted = notificationsMap[callbackId][Callbacks['deleted']];
+	if(deleted!=null) {
+	    try {
+		callback(Callbacks['deleted'],deleted);
+	    }catch(e){}
+	}
+	for(var event in notificationsMap[callbackId]) {
+	    if(event!=Callbacks['deleted']) {
+		try{
+		    callback(event, notificationsMap[callbackId][event]);
+		}catch(e){}
 
-            }
-        }
+	    }
+	}
     }
 };
 
@@ -18992,25 +18665,25 @@ Callbacks.CallbacksBackend.prototype._searchCallbacksInIndex = function(index, o
     var quadPair = quadPair[0];
 
     for(var i=0; i<(order.length+1); i++) {
-        var matched = index['_'] || [];
+	var matched = index['_'] || [];
 
-        var filteredIds = [];
-        for(var j=0; j<matched.length; j++) {
-            var callbackId = matched[j];
-            if(this.callbacksMap[callbackId] != null) {
-                notificationsMap[callbackId] = notificationsMap[callbackId] || {};
-                notificationsMap[callbackId][event] = notificationsMap[callbackId][event] || [];
-                notificationsMap[callbackId][event].push(quadPair);
-                filteredIds.push(callbackId);
-            }
-        }
-        index['_'] = filteredIds;
-        var component = order[i];
-        if(index[''+quadPairNomalized[component]] != null) {
-            index = index[''+quadPairNomalized[component]];
-        } else {
-            break;
-        }
+	var filteredIds = [];
+	for(var j=0; j<matched.length; j++) {
+	    var callbackId = matched[j];
+	    if(this.callbacksMap[callbackId] != null) {
+		notificationsMap[callbackId] = notificationsMap[callbackId] || {};
+		notificationsMap[callbackId][event] = notificationsMap[callbackId][event] || [];
+		notificationsMap[callbackId][event].push(quadPair);
+		filteredIds.push(callbackId);
+	    }
+	}
+	index['_'] = filteredIds;
+	var component = order[i];
+	if(index[''+quadPairNomalized[component]] != null) {
+	    index = index[''+quadPairNomalized[component]];
+	} else {
+	    break;
+	}
     }
 };
 
@@ -19023,7 +18696,7 @@ Callbacks.CallbacksBackend.prototype.subscribeEmpty = function(event, callback) 
 Callbacks.CallbacksBackend.prototype.unsubscribeEmpty = function(event, callback) {
     var callbacks = this.emptyNotificationsMap[event];
     if(callbacks != null) {
-        callbacks = _.reject(callbacks, function(cb){ return cb === callback });
+	callbacks = _.reject(callbacks, function(cb){ return cb === callback });
     }
     this.emptyNotificationsMap[event] = callbacks;
 };
@@ -19034,45 +18707,45 @@ Callbacks.CallbacksBackend.prototype.subscribe = function(s,p,o,g,callback, done
     this.engine.registerNsInEnvironment(null, queryEnv);
     var that = this;
     this.engine.normalizeQuad(quad, queryEnv, true, function(normalized){
-        var pattern =  new Pattern(normalized);
-        var indexKey = that._indexForPattern(pattern);
-        var indexOrder = that.componentOrders[indexKey];
-        var index = that.indexMap[indexKey];
-        for(var i=0; i<indexOrder.length; i++) {
-            var component = indexOrder[i];
-            var quadValue = normalized[component];
-            if(quadValue === '_') {
-                if(index['_'] == null) {
-                    index['_'] = [];
-                }
-                that.callbackCounter++;
-                index['_'].push(that.callbackCounter);
-                that.callbacksMap[that.callbackCounter] = callback;
-                that.callbacksInverseMap[callback] = that.callbackCounter;
-                break;
-            } else {
-                if(i===indexOrder.length-1) {
-                    index[quadValue] = index[quadValue] || {'_':[]};
-                    that.callbackCounter++;
-                    index[quadValue]['_'].push(that.callbackCounter);
-                    that.callbacksMap[that.callbackCounter] = callback;
-                    that.callbacksInverseMap[callback] = that.callbackCounter;
-                } else {
-                    index[quadValue] = index[quadValue] || {};
-                    index = index[quadValue];
-                }
-            }
-        }
-        if(doneCallback != null)
-            doneCallback(true);
+	var pattern =  new Pattern(normalized);
+	var indexKey = that._indexForPattern(pattern);
+	var indexOrder = that.componentOrders[indexKey];
+	var index = that.indexMap[indexKey];
+	for(var i=0; i<indexOrder.length; i++) {
+	    var component = indexOrder[i];
+	    var quadValue = normalized[component];
+	    if(quadValue === '_') {
+		if(index['_'] == null) {
+		    index['_'] = [];
+		}
+		that.callbackCounter++;
+		index['_'].push(that.callbackCounter);
+		that.callbacksMap[that.callbackCounter] = callback;
+		that.callbacksInverseMap[callback] = that.callbackCounter;
+		break;
+	    } else {
+		if(i===indexOrder.length-1) {
+		    index[quadValue] = index[quadValue] || {'_':[]};
+		    that.callbackCounter++;
+		    index[quadValue]['_'].push(that.callbackCounter);
+		    that.callbacksMap[that.callbackCounter] = callback;
+		    that.callbacksInverseMap[callback] = that.callbackCounter;
+		} else {
+		    index[quadValue] = index[quadValue] || {};
+		    index = index[quadValue];
+		}
+	    }
+	}
+	if(doneCallback != null)
+	    doneCallback(true);
     });
 };
 
 Callbacks.CallbacksBackend.prototype.unsubscribe = function(callback) {
     var id = this.callbacksInverseMap[callback];
     if(id != null) {
-        delete this.callbacksInverseMap[callback];
-        delete this.callbacksMap[id];
+	delete this.callbacksInverseMap[callback];
+	delete this.callbacksMap[id];
     }
 };
 
@@ -19080,31 +18753,31 @@ Callbacks.CallbacksBackend.prototype._tokenizeComponents = function(s, p, o, g) 
     var pattern = {};
 
     if(s == null) {
-        pattern['subject'] = Callbacks.ANYTHING;
+	pattern['subject'] = Callbacks.ANYTHING;
     } else {
-        if(s.indexOf("_:") == 0) {
-            pattern['subject'] = {'token': 'blank', 'value':s};
-        } else {
-            pattern['subject'] = {'token': 'uri', 'value':s};
-        }
+	if(s.indexOf("_:") == 0) {
+	    pattern['subject'] = {'token': 'blank', 'value':s};
+	} else {
+	    pattern['subject'] = {'token': 'uri', 'value':s};
+	}
     }
 
     if(p == null) {
-        pattern['predicate'] = Callbacks.ANYTHING;
+	pattern['predicate'] = Callbacks.ANYTHING;
     } else {
-        pattern['predicate'] = {'token': 'uri', 'value':p};
+	pattern['predicate'] = {'token': 'uri', 'value':p};
     }
 
     if(o == null) {
-        pattern['object'] = Callbacks.ANYTHING;
+	pattern['object'] = Callbacks.ANYTHING;
     } else {
-        pattern['object'] = {'token': 'uri', 'value':o};
+	pattern['object'] = {'token': 'uri', 'value':o};
     }
 
     if(g == null) {
-        pattern['graph'] = Callbacks.ANYTHING;
+	pattern['graph'] = Callbacks.ANYTHING;
     } else {
-        pattern['graph'] = {'token': 'uri', 'value':g};
+	pattern['graph'] = {'token': 'uri', 'value':g};
     }
 
     return pattern;
@@ -19115,16 +18788,16 @@ Callbacks.CallbacksBackend.prototype._indexForPattern = function(pattern) {
     var matchingIndices = this.indices;
 
     for(var i=0; i<matchingIndices.length; i++) {
-        var index = matchingIndices[i];
-        var indexComponents = this.componentOrders[index];
-        for(var j=0; j<indexComponents.length; j++) {
-            if(_.include(indexKey, indexComponents[j])===false) {
-                break;
-            }
-            if(j==indexKey.length-1) {
-                return index;
-            }
-        }
+	var index = matchingIndices[i];
+	var indexComponents = this.componentOrders[index];
+	for(var j=0; j<indexComponents.length; j++) {
+	    if(_.include(indexKey, indexComponents[j])===false) {
+		break;
+	    }
+	    if(j==indexKey.length-1) {
+		return index;
+	    }
+	}
     }
 
     return 'SPOG'; // If no other match, we return the most generic index
@@ -19134,15 +18807,15 @@ Callbacks.CallbacksBackend.prototype.observeNode = function() {
     var uri,graphUri,callback,doneCallback;
 
     if(arguments.length === 4) {
-        uri = arguments[0];
-        graphUri = arguments[1];
-        callback = arguments[2];
-        doneCallback = arguments[3];
+	uri = arguments[0];
+	graphUri = arguments[1];
+	callback = arguments[2];
+	doneCallback = arguments[3];
     } else {
-        uri = arguments[0];
-        graphUri = this.engine.lexicon.defaultGraphUri;
-        callback = arguments[1];
-        doneCallback = arguments[2];
+	uri = arguments[0];
+	graphUri = this.engine.lexicon.defaultGraphUri;
+	callback = arguments[1];
+	doneCallback = arguments[2];
     }
     var query = "CONSTRUCT { <" + uri + "> ?p ?o } WHERE { GRAPH <" + graphUri + "> { <" + uri + "> ?p ?o } }";
     var that = this;
@@ -19150,58 +18823,58 @@ Callbacks.CallbacksBackend.prototype.observeNode = function() {
     this.engine.registerNsInEnvironment(null, queryEnv);
     var bindings = [];
     this.engine.execute(query,  function(err, graph){
-        if(!err) {
-            var node = graph;
-            var mustFlush = false;
-            var observer = function(event, triples){
-                if(event === 'eventsFlushed' && mustFlush ) {
-                    mustFlush = false;
-                    try {
-                        callback(node);
-                    }catch(e){}
-                } else if(event !== 'eventsFlushed') {
-                    mustFlush = true;
-                    for(var i = 0; i<triples.length; i++) {
-                        var triple = triples[i];
-                        var s = RDFModel.buildRDFResource(triple.subject,bindings,that.engine,queryEnv);
-                        var p = RDFModel.buildRDFResource(triple.predicate,bindings,that.engine,queryEnv);
-                        var o = RDFModel.buildRDFResource(triple.object,bindings,that.engine,queryEnv);
-                        if(s!=null && p!=null && o!=null) {
-                            triple = new RDFModel.Triple(s,p,o);
-                            if(event === Callbacks['added']) {
-                                node.add(triple);
-                            } else if(event === Callbacks['deleted']) {
-                                node.remove(triple);
-                            }
-                        }
-                    }
-                }
-            };
-            that.observersMap[callback] = observer;
-            that.subscribeEmpty(Callbacks['eventsFlushed'], observer);
-            that.subscribe(uri,null,null,null,observer,function(){
-                try {
-                    callback(node);
-                }catch(e){}
+	if(!err) {
+	    var node = graph;
+	    var mustFlush = false;
+	    var observer = function(event, triples){
+		if(event === 'eventsFlushed' && mustFlush ) {
+		    mustFlush = false;
+		    try {
+			callback(node);
+		    }catch(e){}
+		} else if(event !== 'eventsFlushed') {
+		    mustFlush = true;
+		    for(var i = 0; i<triples.length; i++) {
+			var triple = triples[i];
+			var s = RDFModel.buildRDFResource(triple.subject,bindings,that.engine,queryEnv);
+			var p = RDFModel.buildRDFResource(triple.predicate,bindings,that.engine,queryEnv);
+			var o = RDFModel.buildRDFResource(triple.object,bindings,that.engine,queryEnv);
+			if(s!=null && p!=null && o!=null) {
+			    triple = new RDFModel.Triple(s,p,o);
+			    if(event === Callbacks['added']) {
+				node.add(triple);
+			    } else if(event === Callbacks['deleted']) {
+				node.remove(triple);
+			    }
+			}
+		    }
+		}
+	    };
+	    that.observersMap[callback] = observer;
+	    that.subscribeEmpty(Callbacks['eventsFlushed'], observer);
+	    that.subscribe(uri,null,null,null,observer,function(){
+		try {
+		    callback(node);
+		}catch(e){}
 
-                if(doneCallback)
-                    doneCallback(true)
-            });
-        } else {
-            if(doneCallback)
-                doneCallback(false);
-        }
+		if(doneCallback)
+		    doneCallback(true)
+	    });
+	} else {
+	    if(doneCallback)
+		doneCallback(false);
+	}
     });
 };
 
 Callbacks.CallbacksBackend.prototype.stopObservingNode = function(callback) {
     var observer = this.observersMap[callback];
     if(observer) {
-        this.unsubscribe(observer);
-        this.unsubscribeEmpty(Callbacks['eventsFlushed'],observer);
-        return true;
+	this.unsubscribe(observer);
+	this.unsubscribeEmpty(Callbacks['eventsFlushed'],observer);
+	return true;
     } else {
-        return false;
+	return false;
     }
 };
 
@@ -19214,8 +18887,6 @@ Callbacks.CallbacksBackend.prototype.observeQuery = function(query, callback, en
     var that = this;
     var queryEnv = {blanks:{}, outCache:{}};
     this.engine.registerNsInEnvironment(null, queryEnv);
-    var pattern, quad, indexKey, indexOrder, index;
-
     var counter = this.queryCounter;
     this.queryCounter++;
     this.queriesMap[counter] = query;
@@ -19223,58 +18894,59 @@ Callbacks.CallbacksBackend.prototype.observeQuery = function(query, callback, en
     this.queriesList.push(counter);
     this.queriesCallbacksMap[counter] = callback;
 
-    for(var i=0; i<patterns.length; i++) {
-        quad = patterns[i];
-        if(quad.graph == null) {
-            quad.graph = that.engine.lexicon.defaultGraphUriTerm;
-        }
+    async.eachSeries(patterns, function(quad, k) {
+	if(quad.graph == null) {
+	    quad.graph = that.engine.lexicon.defaultGraphUriTerm;
+	}
 
-        var normalized = that.engine.normalizeQuad(quad, queryEnv, true);
-        pattern =  new Pattern(normalized);
-        indexKey = that._indexForPattern(pattern);
-        indexOrder = that.componentOrders[indexKey];
-        index = that.queriesIndexMap[indexKey];
+	that.engine.normalizeQuad(quad, queryEnv, true, function(normalized) {
+	    var pattern =  new Pattern(normalized);
+	    var indexKey = that._indexForPattern(pattern);
+	    var indexOrder = that.componentOrders[indexKey];
+	    var index = that.queriesIndexMap[indexKey];
 
-        for(var j=0; j<indexOrder.length; j++) {
-            var component = indexOrder[j];
-            var quadValue = normalized[component];
-            if(typeof(quadValue) === 'string') {
-                if(index['_'] == null) {
-                    index['_'] = [];
-                }
-                index['_'].push(counter);
-                break;
-            } else {
-                if(j===indexOrder.length-1) {
-                    index[quadValue] = index[quadValue] || {'_':[]};
-                    index[quadValue]['_'].push(counter);
-                } else {
-                    index[quadValue] = index[quadValue] || {};
-                    index = index[quadValue];
-                }
-            }
-        }
+	    for(var j=0; j<indexOrder.length; j++) {
+		var component = indexOrder[j];
+		var quadValue = normalized[component];
+		if(typeof(quadValue) === 'string') {
+		    if(index['_'] == null) {
+			index['_'] = [];
+		    }
+		    index['_'].push(counter);
+		    break;
+		} else {
+		    if(j===indexOrder.length-1) {
+			index[quadValue] = index[quadValue] || {'_':[]};
+			index[quadValue]['_'].push(counter);
+		    } else {
+			index[quadValue] = index[quadValue] || {};
+			index = index[quadValue];
+		    }
+		}
+	    }
+	    k();
+	});
 
-    }
+    }, function(){
+	that.engine.execute(query, function(err, results){
+	    if(!err){
+		callback(results);
+	    } else {
+		console.log("ERROR in query callback "+results);
+	    }
+	});
 
-    this.engine.execute(query, function(err, results){
-        if(!err){
-            callback(results);
-        } else {
-            console.log("ERROR in query callback "+results);
-        }
+	if(endCallback != null)
+	    endCallback();
     });
-
-    if(endCallback != null)
-        endCallback();
 };
 
 Callbacks.CallbacksBackend.prototype.stopObservingQuery = function(query) {
     var id = this.queriesInverseMap[query];
     if(id != null) {
-        delete this.queriesInverseMap[query];
-        delete this.queriesMap[id];
-        this.queriesList = _.reject(this.queriesList, function(queryId){ return queryId === id });
+	delete this.queriesInverseMap[query];
+	delete this.queriesMap[id];
+	this.queriesList = _.reject(this.queriesList, function(queryId){ return queryId === id });
     }
 };
 
@@ -19283,28 +18955,28 @@ Callbacks.CallbacksBackend.prototype._searchQueriesInIndex = function(index, ord
     var quadPair = quadPair[0];
 
     for(var i=0; i<(order.length+1); i++) {
-        var matched = index['_'] || [];
+	var matched = index['_'] || [];
 
-        var filteredIds = [];
-        for(var j=0; j<matched.length; j++) {
-            var queryId = matched[j];
-            if(_.include(this.pendingQueries,queryId)) {
-                _.remove(this.pendingQueries,function(pendingQueryId){ return pendingQueryId === queryId });
-                this.matchedQueries.push(queryId);
-            }
-            // removing IDs for queries no longer being observed
-            if(this.queriesMap[queryId] != null) {
-                filteredIds.push(queryId);
-            }
-        }
-        index['_'] = filteredIds;
+	var filteredIds = [];
+	for(var j=0; j<matched.length; j++) {
+	    var queryId = matched[j];
+	    if(_.include(this.pendingQueries,queryId)) {
+		_.remove(this.pendingQueries,function(pendingQueryId){ return pendingQueryId === queryId });
+		this.matchedQueries.push(queryId);
+	    }
+	    // removing IDs for queries no longer being observed
+	    if(this.queriesMap[queryId] != null) {
+		filteredIds.push(queryId);
+	    }
+	}
+	index['_'] = filteredIds;
 
-        var component = order[i];
-        if(index[''+quadPairNomalized[component]] != null) {
-            index = index[''+quadPairNomalized[component]];
-        } else {
-            break;
-        }
+	var component = order[i];
+	if(index[''+quadPairNomalized[component]] != null) {
+	    index = index[''+quadPairNomalized[component]];
+	} else {
+	    break;
+	}
     }
 };
 
@@ -19314,26 +18986,26 @@ Callbacks.CallbacksBackend.prototype.dispatchQueries = function(callback) {
     var toDispatchMap = {};
 
     async.eachSeries(this.matchedQueries, function(queryId,k) {
-        // avoid duplicate notifications
-        if(toDispatchMap[queryId] == null) {
-            toDispatchMap[queryId] = true;
-            query = that.queriesMap[queryId];
-            queryCallback = that.queriesCallbacksMap[queryId];
+	// avoid duplicate notifications
+	if(toDispatchMap[queryId] == null) {
+	    toDispatchMap[queryId] = true;
+	    query = that.queriesMap[queryId];
+	    queryCallback = that.queriesCallbacksMap[queryId];
 
-            that.engine.execute(query,
-                function(err, results){
-                    if(!err) {
-                        try{
-                            queryCallback(results);
-                        }catch(e){}
-                    }
-                    k();
-                });
-        } else {
-            k();
-        }
+	    that.engine.execute(query,
+		function(err, results){
+		    if(!err) {
+			try{
+			    queryCallback(results);
+			}catch(e){}
+		    }
+		    k();
+		});
+	} else {
+	    k();
+	}
     }, function(){
-        callback();
+	callback();
     });
 };
 
@@ -19343,8 +19015,8 @@ Callbacks.CallbacksBackend.eventsFlushed = Callbacks.eventsFlushed;
 
 module.exports = Callbacks;
 
-},{"./abstract_query_tree":45,"./quad_index":55,"./rdf_model":60,"./utils":62}],48:[function(require,module,exports){
-var jsonld = require('jsonld');
+},{"./abstract_query_tree":37,"./quad_index":48,"./rdf_model":53,"./utils":55}],41:[function(_dereq_,module,exports){
+var jsonld = _dereq_('jsonld');
 
 var toTriples = function (input, graph, cb) {
     var rval = null;
@@ -19427,9 +19099,9 @@ module.exports = {
 
 
 
-},{"jsonld":40}],49:[function(require,module,exports){
-var async = require('./utils');
-var Tree = require('./btree').Tree;
+},{"jsonld":32}],42:[function(_dereq_,module,exports){
+var async = _dereq_('./utils');
+var Tree = _dereq_('./btree').Tree;
 
 /**
  * Temporal implementation of the lexicon
@@ -19962,10 +19634,10 @@ Lexicon.prototype._unregisterTerm = function (kind, oid, callback) {
 module.exports = {
     Lexicon: Lexicon
 };
-},{"./btree":46,"./utils":62}],50:[function(require,module,exports){
-var http = require("http");
-var https = require("https");
-var url = require("url");
+},{"./btree":38,"./utils":55}],43:[function(_dereq_,module,exports){
+var http = _dereq_("http");
+var https = _dereq_("https");
+var url = _dereq_("url");
 
 NetworkTransport = {
 
@@ -20028,7 +19700,7 @@ NetworkTransport = {
 module.exports = {
     NetworkTransport: NetworkTransport
 };
-},{"http":8,"https":12,"url":36}],51:[function(require,module,exports){
+},{"http":6,"https":10,"url":28}],44:[function(_dereq_,module,exports){
 module.exports = (function() {
   /*
    * Generated by PEG.js 0.8.0.
@@ -23199,11 +22871,11 @@ module.exports = (function() {
     parse:       parse
   };
 })()
-},{}],52:[function(require,module,exports){
-var Tree = require('./btree').Tree;
-var utils = require('./utils');
+},{}],45:[function(_dereq_,module,exports){
+var Tree = _dereq_('./btree').Tree;
+var utils = _dereq_('./utils');
 var async = utils;
-var InMemoryLexicon = require('./lexicon').Lexicon;
+var InMemoryLexicon = _dereq_('./lexicon').Lexicon;
 
 /**
  * Temporal implementation of the lexicon
@@ -23234,6 +22906,7 @@ Lexicon = function(callback, dbName){
 
         // graphs
         var graphStore = that.db.createObjectStore('knownGraphs', { keyPath: 'oid'});
+        graphStore.createIndex("uriToken","uriToken",{unique: true});
         // uris mapping
         var uriStore = that.db.createObjectStore('uris', { keyPath: 'id', autoIncrement : true });
         uriStore.createIndex("uri","uri",{unique: true});
@@ -23242,7 +22915,7 @@ Lexicon = function(callback, dbName){
         blankStore.createIndex("label","label",{unique: true});
         // literals mapping
         var literalStore = that.db.createObjectStore('literals', { keyPath: 'id', autoIncrement : true });
-        literalStore.createIndex("value","value",{unique: true});
+        literalStore.createIndex("literal","literal",{unique: true});
 
         //setTimeout(function(){ callback(that); },0);
     };
@@ -23256,17 +22929,13 @@ Lexicon = function(callback, dbName){
  * @param callback
  */
 Lexicon.prototype.registerGraph = function(oid, uriToken, callback){
-
     if(oid != this.defaultGraphOid) {
-        that.db.transaction(['knownGraphs'], 'readwrite');
-        transaction.oncomplete = function (event) {
-            callback();
-        };
+        var transaction = this.db.transaction(['knownGraphs'], 'readwrite');
         transaction.onerror = function (event) {
             callback(null, new Error(event.target.statusCode));
         };
         var objectStore = transaction.objectStore('knownGraphs');
-        var request = objectStore.add({oid: oid, utiToken: uriToken});
+        var request = objectStore.add({oid: oid, uriToken: uriToken});
         request.onsuccess = function (event) {
             callback(true);
         };
@@ -23282,7 +22951,7 @@ Lexicon.prototype.registerGraph = function(oid, uriToken, callback){
  */
 Lexicon.prototype.registeredGraphs = function(returnUris, callback) {
     var graphs = [];
-    var objectStore = that.db.transaction(['knownGraphs'],'readwrite').objectStore("customers");
+    var objectStore = this.db.transaction(['knownGraphs'],'readwrite').objectStore("knownGraphs");
 
     var request = objectStore.openCursor();
     request.onsuccess = function(event) {
@@ -23299,7 +22968,7 @@ Lexicon.prototype.registeredGraphs = function(returnUris, callback) {
         }
     };
     request.onerror = function(event) {
-        callback(null,new Error("Error retrieving adta from the cursor: " + event.target.errorCode));
+        callback(null,new Error("Error retrieving data from the cursor: " + event.target.errorCode));
     };
 };
 
@@ -23357,7 +23026,7 @@ Lexicon.prototype.resolveUri = function(uri,callback) {
     if(uri === this.defaultGraphUri) {
         callback(this.defaultGraphOid);
     } else {
-        var objectStore = that.db.transaction(["uris"]).objectStore("uris");
+        var objectStore = this.db.transaction(["uris"]).objectStore("uris");
         var request = objectStore.index("uri").get(uri);
         request.onsuccess = function(event) {
             if(event.target.result != null)
@@ -23467,7 +23136,7 @@ Lexicon.prototype.registerLiteral = function(literal, callback) {
     var that = this;
 
     var objectStore = that.db.transaction(["literals"],"readwrite").objectStore("literals");
-    var request = objectStore.index("iteral").get(literal);
+    var request = objectStore.index("literal").get(literal);
     request.onsuccess = function(event) {
         var literalData = event.target.result;
         if(literalData) {
@@ -23690,29 +23359,29 @@ Lexicon.prototype.unregister = function (quad, key, callback) {
  */
 Lexicon.prototype._unregisterTerm = function (kind, oid, callback) {
     var that = this;
-    var transaction = that.db.transaction(["uris","literals","blanks"],"readwrite"), request;
+    var transaction = that.db.transaction(["uris","literals","blanks", "knownGraphs"],"readwrite"), request;
     if (kind === 'uri') {
         if (oid != this.defaultGraphOid) {
             var removeKnownGraphs = function() {
                 var request = transaction.objectStore("knownGraphs").delete(oid);
                 request.onsuccess = function() { callback(); };
-                request.onerror = function(){ callback(); };
+                //request.onerror = function(){ callback(); };
             };
             var request = transaction.objectStore("uris").delete(oid);
             request.onsuccess = removeKnownGraphs();
-            request.onerror = removeKnownGraphs();
+            //request.onerror = removeKnownGraphs();
         } else {
             callback();
         }
     } else if (kind === 'literal') {
         var request = transaction.objectStore("literals").delete(oid);
         request.onsuccess = function() { callback(); };
-        request.onerror = function() { callback(); };
+        //request.onerror = function() { callback(); };
 
     } else if (kind === 'blank') {
         var request = transaction.objectStore("blanks").delete(oid);
         request.onsuccess = function() { callback(); };
-        request.onerror = function() { callback(); };
+        //request.onerror = function() { callback(); };
     } else {
         callback();
     }
@@ -23721,10 +23390,10 @@ Lexicon.prototype._unregisterTerm = function (kind, oid, callback) {
 module.exports = {
     Lexicon: Lexicon
 };
-},{"./btree":46,"./lexicon":49,"./utils":62}],53:[function(require,module,exports){
+},{"./btree":38,"./lexicon":42,"./utils":55}],46:[function(_dereq_,module,exports){
 
 // imports
-var utils = require('./utils');
+var utils = _dereq_('./utils');
 var _ = utils;
 var async = utils;
 
@@ -23922,12 +23591,12 @@ QuadBackend.prototype.clear = function(callback) {
 
 module.exports.QuadBackend = QuadBackend;
 
-},{"./utils":62}],54:[function(require,module,exports){
+},{"./utils":55}],47:[function(_dereq_,module,exports){
 
 // imports
-var QuadIndex = require("./quad_index").QuadIndex;
-var async = require('./utils');
-var _ = require('./utils');
+var QuadIndex = _dereq_("./quad_index").QuadIndex;
+var async = _dereq_('./utils');
+var _ = _dereq_('./utils');
 
 /*
  * "perfect" indices for RDF indexing
@@ -24052,10 +23721,10 @@ QuadBackend.prototype.clear = function(callback) {
 
 module.exports.QuadBackend = QuadBackend;
 
-},{"./quad_index":55,"./utils":62}],55:[function(require,module,exports){
-var BaseTree = require("./btree").Tree;
-var _ = require('./utils');
-var async = require('./utils');
+},{"./quad_index":48,"./utils":55}],48:[function(_dereq_,module,exports){
+var BaseTree = _dereq_("./btree").Tree;
+var _ = _dereq_('./utils');
+var async = _dereq_('./utils');
 
 /**
  * NodeKey
@@ -24293,19 +23962,19 @@ module.exports = {
 };
 
 
-},{"./btree":46,"./utils":62}],56:[function(require,module,exports){
+},{"./btree":38,"./utils":55}],49:[function(_dereq_,module,exports){
 //imports
-var AbstractQueryTree = require("./abstract_query_tree").AbstractQueryTree;
-var NonSupportedSparqlFeatureError = require("./abstract_query_tree").NonSupportedSparqlFeatureError;
-var Utils = require("./utils");
-var QuadIndex = require("./quad_index");
-var QueryPlan = require("./query_plan").QueryPlan;
-var QueryFilters = require("./query_filters").QueryFilters;
-var RDFModel = require("./rdf_model");
-var RDFLoader = require("./rdf_loader").RDFLoader;
-var Callbacks = require("./graph_callbacks").CallbacksBackend;
-var async = require('./utils');
-var _ = require('./utils');
+var AbstractQueryTree = _dereq_("./abstract_query_tree").AbstractQueryTree;
+var NonSupportedSparqlFeatureError = _dereq_("./abstract_query_tree").NonSupportedSparqlFeatureError;
+var Utils = _dereq_("./utils");
+var QuadIndex = _dereq_("./quad_index");
+var QueryPlan = _dereq_("./query_plan").QueryPlan;
+var QueryFilters = _dereq_("./query_filters").QueryFilters;
+var RDFModel = _dereq_("./rdf_model");
+var RDFLoader = _dereq_("./rdf_loader").RDFLoader;
+var Callbacks = _dereq_("./graph_callbacks").CallbacksBackend;
+var async = _dereq_('./utils');
+var _ = _dereq_('./utils');
 
 QueryEngine = function(params) {
     if(arguments.length != 0) {
@@ -25584,8 +25253,8 @@ QueryEngine.prototype.executeJOIN = function(projection, dataset, patterns, env,
 
                 if(commonVars.length == 0) {
                     result = QueryPlan.joinBindings(set1,set2);
-                } else if(this.abstractQueryTree.treeWithUnion(setQuery1) ||
-                    this.abstractQueryTree.treeWithUnion(setQuery2)) {
+                } else if(that.abstractQueryTree.treeWithUnion(setQuery1) ||
+                    that.abstractQueryTree.treeWithUnion(setQuery2)) {
                     result = QueryPlan.joinBindings(set1,set2);
                 } else {
                     result = QueryPlan.joinBindings2(commonVars, set1, set2);
@@ -26123,10 +25792,10 @@ module.exports = {
     QueryEngine: QueryEngine
 };
 
-},{"./abstract_query_tree":45,"./graph_callbacks":47,"./quad_index":55,"./query_filters":57,"./query_plan":58,"./rdf_loader":59,"./rdf_model":60,"./utils":62}],57:[function(require,module,exports){
-var Utils = require('./utils');
+},{"./abstract_query_tree":37,"./graph_callbacks":40,"./quad_index":48,"./query_filters":50,"./query_plan":51,"./rdf_loader":52,"./rdf_model":53,"./utils":55}],50:[function(_dereq_,module,exports){
+var Utils = _dereq_('./utils');
 var     _ = Utils;
-var async = require('./utils');
+var async = _dereq_('./utils');
 
 QueryFilters = {};
 
@@ -27851,9 +27520,9 @@ module.exports = {
     QueryFilters: QueryFilters
 };
 
-},{"./utils":62}],58:[function(require,module,exports){
-var _ = require('./utils');
-var async = require('./utils');
+},{"./utils":55}],51:[function(_dereq_,module,exports){
+var _ = _dereq_('./utils');
+var async = _dereq_('./utils');
 
 /**
  * A new query plan object
@@ -28320,7 +27989,7 @@ QueryPlanDPSize.executeBGPDatasets = function(bgp, dataset, queryEngine, queryEn
                                 results = QueryPlanDPSize.buildBindingsFromRange(results, bgp);
                                 // add the graph bound variable to the result
                                 for (var j = 0; j < results.length; j++) {
-                                    results[j][graphVar] = dataset.named[i].oid;
+                                    results[j][graphVar] = graph.oid;
                                 }
                                 acum.push(results);
                             } else {
@@ -28589,11 +28258,11 @@ module.exports = {
     QueryPlan: QueryPlanDPSize
 };
 
-},{"./utils":62}],59:[function(require,module,exports){
-var NetworkTransport = require("./network_transport").NetworkTransport;
-var RVN3Parser = require("./rvn3_parser").RVN3Parser;
-var JSONLDParser = require("./jsonld_parser").JSONLDParser;
-var Utils = require("./utils");
+},{"./utils":55}],52:[function(_dereq_,module,exports){
+var NetworkTransport = _dereq_("./network_transport").NetworkTransport;
+var RVN3Parser = _dereq_("./rvn3_parser").RVN3Parser;
+var JSONLDParser = _dereq_("./jsonld_parser").JSONLDParser;
+var Utils = _dereq_("./utils");
 
  var RDFLoader = function (params) {
 
@@ -28692,7 +28361,7 @@ RDFLoader.prototype.load = function(uri, graph, callback) {
 RDFLoader.prototype.loadFromFile = function(parser, graph, uri, callback) {
     try {
         var that = this;
-        var fs = require('fs');
+        var fs = _dereq_('fs');
         fs.readFile(uri.split("file:/")[1], function(err, data) {
             if(err) {
                 callback(err);
@@ -28732,10 +28401,10 @@ module.exports = {
 
 // var loader = require("./js-communication/src/rdf_loader").RDFLoader; loader = new loader.RDFLoader(); loader.load('http://dbpedialite.org/titles/Lisp_%28programming_language%29', function(success, results){console.log("hey"); console.log(success); console.log(results)})
 
-},{"./jsonld_parser":48,"./network_transport":50,"./rvn3_parser":61,"./utils":62,"fs":2}],60:[function(require,module,exports){
+},{"./jsonld_parser":41,"./network_transport":43,"./rvn3_parser":54,"./utils":55,"fs":1}],53:[function(_dereq_,module,exports){
 // imports
-var _ = require("./utils");
-var QueryFilters = require("./query_filters").QueryFilters;
+var _ = _dereq_("./utils");
+var QueryFilters = _dereq_("./query_filters").QueryFilters;
 
 RDFModel = {};
 
@@ -29394,9 +29063,9 @@ RDFModel.rdf = new RDFModel.RDFEnvironment();
 
 module.exports = RDFModel;
 
-},{"./query_filters":57,"./utils":62}],61:[function(require,module,exports){
+},{"./query_filters":50,"./utils":55}],54:[function(_dereq_,module,exports){
 //var N3Parser = require('n3').Parser;
-var N3Parser = require('../node_modules/n3/lib/N3Parser');
+var N3Parser = _dereq_('../node_modules/n3/lib/N3Parser');
 
 // Add a wrapper around the N3.js parser
 var RVN3Parser = {};
@@ -29459,7 +29128,7 @@ function convertEntity(entity) {
 module.exports = {
     RVN3Parser: RVN3Parser
 };
-},{"../node_modules/n3/lib/N3Parser":44}],62:[function(require,module,exports){
+},{"../node_modules/n3/lib/N3Parser":36}],55:[function(_dereq_,module,exports){
 (function (process){
 var nextTick = (function () {
 
@@ -29478,9 +29147,9 @@ var nextTick = (function () {
         return function (f) { return global.setImmediate(f) };
 
     // Node.js specific
-    if(global !== 'undefined' && global.nextTick && typeof require === 'function') {
-        if(require('timers') && require('timers').setImmediate)
-            return require('timers').setImmediate;
+    if(global !== 'undefined' && global.nextTick && typeof _dereq_ === 'function') {
+        if(_dereq_('timers') && _dereq_('timers').setImmediate)
+            return _dereq_('timers').setImmediate;
         else
             return global.nextTick;
     }
@@ -29682,8 +29351,8 @@ normalizeUnicodeLiterals = function (string) {
 
 registerIndexedDB = function(that) {
     if(typeof(window) === 'undefined') {
-        var sqlite3 = require('sqlite3')
-        var indexeddbjs = require("indexeddb-js");
+        var sqlite3 = _dereq_('sqlite3')
+        var indexeddbjs = _dereq_("indexeddb-js");
         var engine    = new sqlite3.Database(':memory:');
         var scope     = indexeddbjs.makeScope('sqlite3', engine);
         that.indexedDB = scope.indexedDB;
@@ -29933,6 +29602,7 @@ module.exports = {
     seq: seq
 };
 
-}).call(this,require('_process'))
-},{"_process":16,"indexeddb-js":undefined,"sqlite3":undefined,"timers":34}]},{},[1])(1)
+}).call(this,_dereq_("1YiZ5S"))
+},{"1YiZ5S":13,"timers":26}]},{},[39])
+(39)
 });

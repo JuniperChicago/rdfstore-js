@@ -1643,7 +1643,7 @@ http.request = function (params, cb) {
     if (!params.host && params.hostname) {
         params.host = params.hostname;
     }
-    
+
     if (!params.scheme) params.scheme = window.location.protocol.split(':')[0];
     if (!params.host) {
         params.host = window.location.hostname || window.location.host;
@@ -1655,7 +1655,7 @@ http.request = function (params, cb) {
         params.host = params.host.split(':')[0];
     }
     if (!params.port) params.port = params.scheme == 'https' ? 443 : 80;
-    
+
     var req = new Request(new xhrHttp, params);
     if (cb) req.on('response', cb);
     return req;
@@ -1776,20 +1776,20 @@ var Request = module.exports = function (xhr, params) {
     self.writable = true;
     self.xhr = xhr;
     self.body = [];
-    
+
     self.uri = (params.scheme || 'http') + '://'
         + params.host
         + (params.port ? ':' + params.port : '')
         + (params.path || '/')
     ;
-    
+
     if (typeof params.withCredentials === 'undefined') {
         params.withCredentials = true;
     }
 
     try { xhr.withCredentials = params.withCredentials }
     catch (e) {}
-    
+
     xhr.open(
         params.method || 'GET',
         self.uri,
@@ -1797,7 +1797,7 @@ var Request = module.exports = function (xhr, params) {
     );
 
     self._headers = {};
-    
+
     if (params.headers) {
         var keys = objectKeys(params.headers);
         for (var i = 0; i < keys.length; i++) {
@@ -1807,7 +1807,7 @@ var Request = module.exports = function (xhr, params) {
             self.setHeader(key, value);
         }
     }
-    
+
     if (params.auth) {
         //basic auth
         this.setHeader('Authorization', 'Basic ' + Base64.btoa(params.auth));
@@ -1817,11 +1817,11 @@ var Request = module.exports = function (xhr, params) {
     res.on('close', function () {
         self.emit('close');
     });
-    
+
     res.on('ready', function () {
         self.emit('response', res);
     });
-    
+
     xhr.onreadystatechange = function () {
         // Fix for IE9 bug
         // SCRIPT575: Could not complete the operation due to error c00c023f
@@ -1890,7 +1890,7 @@ Request.prototype.end = function (s) {
         }
         var body = new(this.body[0].constructor)(len);
         var k = 0;
-        
+
         for (var i = 0; i < this.body.length; i++) {
             var b = this.body[i];
             for (var j = 0; j < b.length; j++) {
@@ -1978,13 +1978,13 @@ function parseHeaders (res) {
     for (var i = 0; i < lines.length; i++) {
         var line = lines[i];
         if (line === '') continue;
-        
+
         var m = line.match(/^([^:]+):\s*(.*)/);
         if (m) {
             var key = m[1].toLowerCase(), value = m[2];
-            
+
             if (headers[key] !== undefined) {
-            
+
                 if (isArray(headers[key])) {
                     headers[key].push(value);
                 }
@@ -2023,7 +2023,7 @@ Response.prototype.handle = function (res) {
         catch (err) {
             capable.status2 = false;
         }
-        
+
         if (capable.status2) {
             this.emit('ready');
         }
@@ -2037,7 +2037,7 @@ Response.prototype.handle = function (res) {
             }
         }
         catch (err) {}
-        
+
         try {
             this._emitData(res);
         }
@@ -2051,12 +2051,12 @@ Response.prototype.handle = function (res) {
             this.emit('ready');
         }
         this._emitData(res);
-        
+
         if (res.error) {
             this.emit('error', this.getResponse(res));
         }
         else this.emit('end');
-        
+
         this.emit('close');
     }
 };
@@ -4794,7 +4794,7 @@ Writable.prototype.write = function(chunk, encoding, cb) {
     chunk = new Buffer(chunk);
   if (isArrayBuffer(chunk) && typeof Uint8Array !== 'undefined')
     chunk = new Buffer(new Uint8Array(chunk));
-  
+
   if (Buffer.isBuffer(chunk))
     encoding = 'buffer';
   else if (!encoding)
@@ -14789,7 +14789,7 @@ return factory;
  * (C) 2011, Charlie Robbins
  *
  */
- 
+
 var fs = _dereq_('fs'),
     path = _dereq_('path');
 
@@ -14798,7 +14798,7 @@ var fs = _dereq_('fs'),
 // #### @pmodule {Module} Parent module to read from.
 // #### @options {Object|Array|string} **Optional** Options used when exposing properties.
 // #### @arguments {string...} **Optional** Specified properties to expose.
-// Exposes properties from the package.json file for the parent module on 
+// Exposes properties from the package.json file for the parent module on
 // it's exports. Valid usage:
 //
 // `require('pkginfo')()`
@@ -14813,7 +14813,7 @@ var pkginfo = module.exports = function (pmodule, options) {
   var args = [].slice.call(arguments, 2).filter(function (arg) {
     return typeof arg === 'string';
   });
-  
+
   //
   // **Parse variable arguments**
   //
@@ -14833,35 +14833,35 @@ var pkginfo = module.exports = function (pmodule, options) {
     //
     options = { include: [options] };
   }
-  
+
   //
   // **Setup default options**
   //
   options = options || {};
-  
+
   // ensure that includes have been defined
   options.include = options.include || [];
-  
+
   if (args.length > 0) {
     //
     // If additional string arguments have been passed in
-    // then add them to the properties to expose on the 
-    // parent module. 
+    // then add them to the properties to expose on the
+    // parent module.
     //
     options.include = options.include.concat(args);
   }
-  
+
   var pkg = pkginfo.read(pmodule, options.dir).package;
   Object.keys(pkg).forEach(function (key) {
     if (options.include.length > 0 && !~options.include.indexOf(key)) {
       return;
     }
-    
+
     if (!pmodule.exports[key]) {
       pmodule.exports[key] = pkg[key];
     }
   });
-  
+
   return pkginfo;
 };
 
@@ -14870,26 +14870,26 @@ var pkginfo = module.exports = function (pmodule, options) {
 // #### @pmodule {Module} Parent module to read from.
 // #### @dir {string} **Optional** Directory to start search from.
 // Searches up the directory tree from `dir` until it finds a directory
-// which contains a `package.json` file. 
+// which contains a `package.json` file.
 //
 pkginfo.find = function (pmodule, dir) {
   if (! dir) {
     dir = path.dirname(pmodule.filename);
   }
-  
+
   var files = fs.readdirSync(dir);
-  
+
   if (~files.indexOf('package.json')) {
     return path.join(dir, 'package.json');
   }
-  
+
   if (dir === '/') {
     throw new Error('Could not find package.json up from: ' + dir);
   }
   else if (!dir || dir === '.') {
     throw new Error('Cannot find package.json from unspecified directory');
   }
-  
+
   return pkginfo.find(pmodule, path.dirname(dir));
 };
 
@@ -14900,13 +14900,13 @@ pkginfo.find = function (pmodule, dir) {
 // Searches up the directory tree from `dir` until it finds a directory
 // which contains a `package.json` file and returns the package information.
 //
-pkginfo.read = function (pmodule, dir) { 
+pkginfo.read = function (pmodule, dir) {
   dir = pkginfo.find(pmodule, dir);
-  
+
   var data = fs.readFileSync(dir).toString();
-      
+
   return {
-    dir: dir, 
+    dir: dir,
     package: JSON.parse(data)
   };
 };
@@ -19642,57 +19642,19 @@ var url = _dereq_("url");
 NetworkTransport = {
 
     load: function(uri, accept, callback, redirect) {
-        var redirection = redirect==null ? 3 : redirect;
-        var parts = url.parse(uri, true, true);
 
-        var params = {
-            'host': parts.host,
-            'hostname': parts.hostname,
-            'method': 'GET',
-            'path': parts.path,
-            'headers': {'host':parts.hostname, 'Accept':accept}
-        };
-
-        var client = null;
-
-        if(parts.protocol === 'http:') {
-            params.port = (parts.port || 80);
-            client = http;
-        } else if(parts.protocol === 'https:') {
-            params.port = (parts.port || 443);
-            client = https;
+       $.ajax({
+         url: uri,
+        success: function(data, status, xhr) {
+          callback(null, { headers: {
+            "Content-Type": xhr.getResponseHeader("Content-Type")},
+            data: data
+          });
+        },
+        error: function(error) {
+          callback(new Error("Something went wrong: "+error));
         }
-
-        var request = client.request(params, function(response){
-            var headers = response.headers;
-            var data = "";
-
-            if((""+response.statusCode)[0] == '2') {
-                response.on('end', function() {
-                    callback(null, {headers: headers, data: data});
-                });
-                response.on('data', function(chunk) {
-                    data = data + chunk;
-                });
-            } else if((""+response.statusCode)[0] == '3'){
-                if(redirection == 0) {
-                    callback(new Error("Too many redirections"));
-                } else {
-                    var location = (headers["Location"] || headers["location"]);
-                    if(location != null) {
-                        NetworkTransport.load(location, accept, callback, (redirection -1));
-                    } else {
-                        callback(new Error("Redirection without location header"));
-                    }
-                }
-            } else {
-                callback(new Error("HTTP error: "+response.statusCode));
-            }
-        });
-
-        request.on('error', callback);
-
-        request.end();
+      });
     }
 
 };
@@ -25343,10 +25305,14 @@ QueryEngine.prototype.executeUpdate = function(syntaxTree, callback) {
             var that = this;
             this.rdfLoader.load(aqt.sourceGraph.value, graph, function(err, result){
                 if(err) {
-                    callback(false, "error batch loading quads");
+                    callback(new Error("error batch loading quads"));
                 } else {
                     that.batchLoad(result,function(result){
-                        callback(result!=null, result||"error batch loading quads");
+                      if(result !== null) {
+                          callback(null, result);
+                      } else {
+                          callback(new Error("Error batch loading quads"));
+                      }
                     });
                 }
             });
@@ -25373,13 +25339,24 @@ QueryEngine.prototype.batchLoad = function(quads, callback) {
         var maybeBlankOid, oid, quad;
 
         if (quad[component]['uri'] || quad[component].token === 'uri') {
-            that.lexicon.registerUri(quad[component].uri || quad[component].value, function(oid){
-                if (quad[component].uri != null) {
-                    quad[component] = {'token': 'uri', 'value': quad[component].uri};
-                    delete quad[component]['uri'];
+            var uriValue = (quad[component].uri || quad[component].value);
+            that.lexicon.registerUri(uriValue, function(oid){
+                var returnUriComponent = function(){
+                    if (quad[component].uri != null) {
+                        quad[component] = {'token': 'uri', 'value': quad[component].uri};
+                        delete quad[component]['uri'];
+                    }
+                    newQuad[component] = oid;
+                    k();
+                };
+
+                if(component === 'graph') {
+                    that.lexicon.registerGraph(oid, uriValue, function(){
+                        returnUriComponent();
+                    });
+                } else {
+                    returnUriComponent();
                 }
-                newQuad[component] = oid;
-                k();
             });
         } else if (quad[component]['literal'] || quad[component].token === 'literal') {
             that.lexicon.registerLiteral(quad[component].literal || quad[component].value, function(oid){

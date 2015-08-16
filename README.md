@@ -7,6 +7,33 @@ Many features present in versions 0.8.X have been removed. Some of them, will be
 
 Please read this README file carefully to find the current set of features.
 
+## Table of Contents
+
+- [Introduction](#introduction)
+- [Documentation](#documentation)
+- [SPARQL support](#sparql-support)
+- [Installation](#installation)
+- [Building](#building)
+- [Tests](#tests)
+- [API](#api)
+	- [Store creation](#store-creation)
+	- [Query execution](#query-execution)
+	- [Construct queries RDF Interfaces API](#construct-queries-rdf-interfaces-api)
+	- [Loading remote graphs](#loading-remote-graphs)
+	- [High level interface](#high-level-interface)
+	- [RDF Interface API](#rdf-interface-api)
+	- [Default Prefixes](#default-prefixes)
+	- [JSON-LD Support](#json-ld-support)
+	- [Events API](#events-api)
+	- [Custom Filter Functions](#custom-filter-functions)
+	- [Persistence](#persistence)
+- [Dependencies](#dependencies)
+- [Frontend](#frontend)
+- [Contributing](#contributing)
+- [Author](#author)
+- [License](#license)
+
+
 ## Introduction
 
 rdfstore-js is a pure Javascript implementation of a RDF graph store with support for the SPARQL query and data manipulation language.
@@ -209,7 +236,7 @@ store.execute(query, function(err, graph){
 rdfstore-js will try to retrieve remote RDF resources across the network when a 'LOAD' SPARQL query is executed.
 The node.js build of the library will use regular TCP sockets and perform proper content negotiation. It will also follow a limited number of redirections.
 The browser build, will try to perform an AJAX request to retrieve the resource using the correct HTTP headers. Nevertheless, this implementation is subjected to the limitations of the Same Domain Policy implemented in current browsers that prevents cross domain requests. Redirections, even for the same domain, may also fail due to the browser removing the 'Accept' HTTP header of the original request.
-rdfstore-js relies in on the jQuery Javascript library to peform cross-browser AJAX requests. This library must be linked in order to exeucte 'LOAD' requests in the browser.  
+rdfstore-js relies in on the jQuery Javascript library to peform cross-browser AJAX requests. This library must be linked in order to exeucte 'LOAD' requests in the browser.
 
 ```javascript
 store.execute('LOAD <http://dbpedialite.org/titles/Lisp_%28programming_language%29>\
@@ -352,7 +379,7 @@ rdfstore-js implements parsers for Turtle and JSON-LD. The specification of JSON
 ```javascript
         jsonld = {
           "@context":
-          {  
+          {
              "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
              "xsd": "http://www.w3.org/2001/XMLSchema#",
              "name": "http://xmlns.com/foaf/0.1/name",
@@ -386,9 +413,9 @@ var cb = function(event, triples){
   // the pattern s:http://example/boogk, p:*, o:*, g:*
   // is inserted or removed.
   if(event === 'added') {
-    console.log(triples.length+" triples have been added");  
+    console.log(triples.length+" triples have been added");
   } else if(event === 'deleted') {
-    console.log(triples.length+" triples have been deleted");  
+    console.log(triples.length+" triples have been deleted");
   }
 }
 
@@ -491,6 +518,17 @@ parsing:
   by Ruben Verborgh and released under the MIT license.
 
 - [jsonld](https://github.com/digitalbazaar/jsonld.js), developed by Digital Bazaar and released under the New BSD license.
+
+##Frontend
+
+A stand-along frontend for the store built using electron has been added in version 0.9.7.
+You can build the frontend running the command:
+
+```bash
+$ gulp frontend
+```
+
+The file will be added under the releases directory.
 
 ##Contributing
 

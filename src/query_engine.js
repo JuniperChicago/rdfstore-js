@@ -1378,10 +1378,14 @@ QueryEngine.prototype.executeUpdate = function(syntaxTree, callback) {
             var that = this;
             this.rdfLoader.load(aqt.sourceGraph.value, graph, function(err, result){
                 if(err) {
-                    callback(false, "error batch loading quads");
+                    callback(new Error("error batch loading quads"));
                 } else {
                     that.batchLoad(result,function(result){
-                        callback(result!=null, result||"error batch loading quads");
+                        if(result !== null) {
+                            callback(null, rsult);
+                        } else {
+                            callback(new Error("Error batch loading quads"));
+                        }
                     });
                 }
             });
@@ -1408,13 +1412,24 @@ QueryEngine.prototype.batchLoad = function(quads, callback) {
         var maybeBlankOid, oid, quad;
 
         if (quad[component]['uri'] || quad[component].token === 'uri') {
-            that.lexicon.registerUri(quad[component].uri || quad[component].value, function(oid){
-                if (quad[component].uri != null) {
-                    quad[component] = {'token': 'uri', 'value': quad[component].uri};
-                    delete quad[component]['uri'];
+            var uriValue = (quad[component].uri || quad[component].value);
+            that.lexicon.registerUri(uriValue, function(oid){
+                var returnUriComponent = function(){
+                    if (quad[component].uri != null) {
+                        quad[component] = {'token': 'uri', 'value': quad[component].uri};
+                        delete quad[component]['uri'];
+                    }
+                    newQuad[component] = oid;
+                    k();
+                };
+
+                if(component === 'graph') {
+                    that.lexicon.registerGraph(oid, uriValue, function(){
+                        returnUriComponent();
+                    });
+                } else {
+                    returnUriComponent();
                 }
-                newQuad[component] = oid;
-                k();
             });
         } else if (quad[component]['literal'] || quad[component].token === 'literal') {
             that.lexicon.registerLiteral(quad[component].literal || quad[component].value, function(oid){
@@ -1466,7 +1481,7 @@ QueryEngine.prototype.batchLoad = function(quads, callback) {
             that.backend.search(key, function(result){
                 if(!result) {
                     that.backend.index(key, function(result){
-                        if(result == true){
+                        if(result){
                             if(that.eventsOnBatchLoad)
                                 that.callbacksBackend.nextGraphModification(Callbacks.added, [originalQuad,quad]);
                             counter = counter + 1;

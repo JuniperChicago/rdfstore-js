@@ -25,9 +25,10 @@ var _ = require("./utils");
  *  <li> maxCacheSize: if using persistence, maximum size of the index cache </li>
  * </ul>
  */
-Store = function(arg1, arg2) {
+function Store(arg1, arg2) {
     var callback = null;
     var params   = null;
+
 
     if(arguments.length == 0) {
         params ={};
@@ -45,49 +46,66 @@ Store = function(arg1, arg2) {
         params['treeOrder'] = 15;
     }
 
-    var Lexicon = InMemoryLexicon;
-    var QuadBackend = InMemoryQuadBackend;
+    this.functionMap = {};
+    this.customFns = {};
+
+    this.engine = null;
+    
+    this._buildEngine(params, callback);
+
+};
+
+/**
+ * Creates new Lexicon, QuadBackend, and QueryEngine.
+ *
+ * @arguments:
+ * @param {Object} [params]
+ * @param {Function} [callback]: returned upon instantiation of store
+ */
+
+Store.prototype._buildEngine = function(params, callback){
+    
+    var Lexicon;
+    var QuadBackend;
+
     if(params['persistent'] === true){
         Lexicon = PersistentLexicon;
         QuadBackend = PersistentBackend;
+    
+    } else {
+        Lexicon = InMemoryLexicon;
+        QuadBackend = InMemoryQuadBackend;
     }
-    this.functionMap = {};
 
     var that = this;
-    this.customFns = {};
+    var createEngine = function(){
+        that.engine = new QueryEngine(params);
+        callback(null, that);
+    };
+    
+    var createQuadBackend = function(lexicon){
+
+        new QuadBackend(params, function(backend){
+            params.lexicon = lexicon;
+            params.backend = backend;
+
+            if(params['overwrite']) {
+                backend.clear(createEngine);
+            } else {
+                createEngine()
+            }
+        })
+    };
+
     new Lexicon(function(lexicon){
-        var createQuadBackend = function() {
-            new QuadBackend(params, function (backend) {
-                /*
-                 if(params['overwrite'] === true) {
-                 // delete index values
-                 backend.clear();
-                 }
-                 */
-                var createEngine = function() {
-                    params.backend = backend;
-                    params.lexicon = lexicon;
-                    that.engine = new QueryEngine(params);
-
-                    callback(null, that);
-                }
-                if(params['overwrite']) {
-                    backend.clear(createEngine)
-                } else {
-                    createEngine();
-                }
-            });
-        }
+        
         if(params['overwrite'] === true) {
-            // delete lexicon values
-            lexicon.clear(createQuadBackend);
+            lexicon.clear(createQuadBackend(lexicon));
         } else {
-            createQuadBackend();
+            createQuadBackend(lexicon);
         }
-
-    },params['name']);
+    },params['name'])
 };
-
 
 /**
  * An instance of RDF JS Interface <code>RDFEnvironment</code>

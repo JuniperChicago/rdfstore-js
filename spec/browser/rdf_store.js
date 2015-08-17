@@ -19595,7 +19595,7 @@ Lexicon.prototype._unregisterTerm = function (kind, oid, callback) {
                                 });
                             }, function(k){
                                 // delete the graph oid from known graphs
-                                // in case this URI is a graph ident
+                                // in case this URI is a graph identifier
                                 that.knownGraphs.delete(oid, function(){
                                    k();
                                 }) ;
@@ -27569,17 +27569,17 @@ var async = _dereq_('./utils');
  * @param left
  * @param right
  * @param cost
- * @param ident
+ * @param identifier
  * @param allVars
  * @param joinVars
  * @constructor
  */
-var QueryPlan = function(left, right, cost, ident, allVars, joinVars) {
+var QueryPlan = function(left, right, cost, identifier, allVars, joinVars) {
 
     this.left =  left;
     this.right = right;
     this.cost = cost;
-    this.i = ident;
+    this.i = identifier;
     this.vars = allVars;
     this.join = joinVars;
 
@@ -27789,8 +27789,8 @@ QueryPlanDPSize.createJoinTree = function(leftPlan, rightPlan) {
         }
     }
 
-    // Creates a new ident for the join tree using the union
-    // of both plans idents.
+    // Creates a new identifier for the join tree using the union
+    // of both plans identifiers.
     var rightIds = rightPlan.i.split("_");
     var leftIds = leftPlan.i.split("_");
     var distinct = {};

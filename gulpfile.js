@@ -1,19 +1,27 @@
 var gulp = require('gulp');
-var clean = require('gulp-clean');
 var browserify = require('gulp-browserify');
 var rename     = require('gulp-rename');
-var closureCompiler = require('gulp-closure-compiler');
+
 var source = require('vinyl-source-stream');
 var jasmine = require('gulp-jasmine');
 var PEG = require('pegjs');
 var fs = require('fs');
 var electron = require('gulp-electron');
 var packageJson = require('./package.json');
+var del = require('del');
+var closure = require('gulp-closure-compiler-service');
 
-gulp.task('clean-dist', function(){
-    return gulp.src('dist', {read: false})
-        .pipe(clean());
+
+// gulp.task('clean-dist', function(){
+//     return gulp.src('dist', {read: false})
+//         .pipe(clean());
+// });
+
+
+gulp.task('clean-dist', function(cb) {
+    del(['dist/*.js'], cb);
 });
+
 
 gulp.task('browserify', ['clean-dist'], function() {
 
@@ -28,14 +36,9 @@ gulp.task('browserify', ['clean-dist'], function() {
 
 gulp.task('minimize', ['browserify'], function() {
     return gulp.src('dist/*.js')
-        .pipe(closureCompiler({
-            compilerPath: './node_modules/closure-compiler/lib/vendor/compiler.jar',
-            fileName: 'dist/rdfstore_min.js',
-            compilerFlags: {
-                'language_in': 'ECMASCRIPT5'
-                //'compilation_level': 'ADVANCED_OPTIMIZATIONS'
-            }
-        }));
+        .pipe(closure({language: 'ECMASCRIPT5'}))
+        .pipe(rename('rdfstore_min.js'))
+        .pipe(gulp.dest('./dist'));
 });
 
 gulp.task('performance',function(){
@@ -90,4 +93,4 @@ gulp.task('frontend', function() {
 });
 
 gulp.task('default', ['parseGrammar', 'specs']);
-gulp.task('browser', ['parseGrammar','clean-dist','browserify','minimize']);
+gulp.task('browser', ['parseGrammar', 'minimize']);

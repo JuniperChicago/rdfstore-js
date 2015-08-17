@@ -1238,90 +1238,90 @@ var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 }(typeof exports === 'undefined' ? (this.base64js = {}) : exports))
 
 },{}],4:[function(_dereq_,module,exports){
-exports.read = function(buffer, offset, isLE, mLen, nBytes) {
-  var e, m,
-      eLen = nBytes * 8 - mLen - 1,
-      eMax = (1 << eLen) - 1,
-      eBias = eMax >> 1,
-      nBits = -7,
-      i = isLE ? (nBytes - 1) : 0,
-      d = isLE ? -1 : 1,
-      s = buffer[offset + i];
+exports.read = function (buffer, offset, isLE, mLen, nBytes) {
+  var e, m
+  var eLen = nBytes * 8 - mLen - 1
+  var eMax = (1 << eLen) - 1
+  var eBias = eMax >> 1
+  var nBits = -7
+  var i = isLE ? (nBytes - 1) : 0
+  var d = isLE ? -1 : 1
+  var s = buffer[offset + i]
 
-  i += d;
+  i += d
 
-  e = s & ((1 << (-nBits)) - 1);
-  s >>= (-nBits);
-  nBits += eLen;
-  for (; nBits > 0; e = e * 256 + buffer[offset + i], i += d, nBits -= 8);
+  e = s & ((1 << (-nBits)) - 1)
+  s >>= (-nBits)
+  nBits += eLen
+  for (; nBits > 0; e = e * 256 + buffer[offset + i], i += d, nBits -= 8) {}
 
-  m = e & ((1 << (-nBits)) - 1);
-  e >>= (-nBits);
-  nBits += mLen;
-  for (; nBits > 0; m = m * 256 + buffer[offset + i], i += d, nBits -= 8);
+  m = e & ((1 << (-nBits)) - 1)
+  e >>= (-nBits)
+  nBits += mLen
+  for (; nBits > 0; m = m * 256 + buffer[offset + i], i += d, nBits -= 8) {}
 
   if (e === 0) {
-    e = 1 - eBias;
+    e = 1 - eBias
   } else if (e === eMax) {
-    return m ? NaN : ((s ? -1 : 1) * Infinity);
+    return m ? NaN : ((s ? -1 : 1) * Infinity)
   } else {
-    m = m + Math.pow(2, mLen);
-    e = e - eBias;
+    m = m + Math.pow(2, mLen)
+    e = e - eBias
   }
-  return (s ? -1 : 1) * m * Math.pow(2, e - mLen);
-};
+  return (s ? -1 : 1) * m * Math.pow(2, e - mLen)
+}
 
-exports.write = function(buffer, value, offset, isLE, mLen, nBytes) {
-  var e, m, c,
-      eLen = nBytes * 8 - mLen - 1,
-      eMax = (1 << eLen) - 1,
-      eBias = eMax >> 1,
-      rt = (mLen === 23 ? Math.pow(2, -24) - Math.pow(2, -77) : 0),
-      i = isLE ? 0 : (nBytes - 1),
-      d = isLE ? 1 : -1,
-      s = value < 0 || (value === 0 && 1 / value < 0) ? 1 : 0;
+exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
+  var e, m, c
+  var eLen = nBytes * 8 - mLen - 1
+  var eMax = (1 << eLen) - 1
+  var eBias = eMax >> 1
+  var rt = (mLen === 23 ? Math.pow(2, -24) - Math.pow(2, -77) : 0)
+  var i = isLE ? 0 : (nBytes - 1)
+  var d = isLE ? 1 : -1
+  var s = value < 0 || (value === 0 && 1 / value < 0) ? 1 : 0
 
-  value = Math.abs(value);
+  value = Math.abs(value)
 
   if (isNaN(value) || value === Infinity) {
-    m = isNaN(value) ? 1 : 0;
-    e = eMax;
+    m = isNaN(value) ? 1 : 0
+    e = eMax
   } else {
-    e = Math.floor(Math.log(value) / Math.LN2);
+    e = Math.floor(Math.log(value) / Math.LN2)
     if (value * (c = Math.pow(2, -e)) < 1) {
-      e--;
-      c *= 2;
+      e--
+      c *= 2
     }
     if (e + eBias >= 1) {
-      value += rt / c;
+      value += rt / c
     } else {
-      value += rt * Math.pow(2, 1 - eBias);
+      value += rt * Math.pow(2, 1 - eBias)
     }
     if (value * c >= 2) {
-      e++;
-      c /= 2;
+      e++
+      c /= 2
     }
 
     if (e + eBias >= eMax) {
-      m = 0;
-      e = eMax;
+      m = 0
+      e = eMax
     } else if (e + eBias >= 1) {
-      m = (value * c - 1) * Math.pow(2, mLen);
-      e = e + eBias;
+      m = (value * c - 1) * Math.pow(2, mLen)
+      e = e + eBias
     } else {
-      m = value * Math.pow(2, eBias - 1) * Math.pow(2, mLen);
-      e = 0;
+      m = value * Math.pow(2, eBias - 1) * Math.pow(2, mLen)
+      e = 0
     }
   }
 
-  for (; mLen >= 8; buffer[offset + i] = m & 0xff, i += d, m /= 256, mLen -= 8);
+  for (; mLen >= 8; buffer[offset + i] = m & 0xff, i += d, m /= 256, mLen -= 8) {}
 
-  e = (e << mLen) | m;
-  eLen += mLen;
-  for (; eLen > 0; buffer[offset + i] = e & 0xff, i += d, e /= 256, eLen -= 8);
+  e = (e << mLen) | m
+  eLen += mLen
+  for (; eLen > 0; buffer[offset + i] = e & 0xff, i += d, e /= 256, eLen -= 8) {}
 
-  buffer[offset + i - d] |= s * 128;
-};
+  buffer[offset + i - d] |= s * 128
+}
 
 },{}],5:[function(_dereq_,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
@@ -2407,8 +2407,8 @@ var substr = 'ab'.substr(-1) === 'b'
     }
 ;
 
-}).call(this,_dereq_("1YiZ5S"))
-},{"1YiZ5S":13}],13:[function(_dereq_,module,exports){
+}).call(this,_dereq_("VCmEsw"))
+},{"VCmEsw":13}],13:[function(_dereq_,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -4400,8 +4400,8 @@ function indexOf (xs, x) {
   return -1;
 }
 
-}).call(this,_dereq_("1YiZ5S"))
-},{"./index.js":19,"1YiZ5S":13,"buffer":2,"events":5,"inherits":11,"process/browser.js":20,"string_decoder":25}],23:[function(_dereq_,module,exports){
+}).call(this,_dereq_("VCmEsw"))
+},{"./index.js":19,"VCmEsw":13,"buffer":2,"events":5,"inherits":11,"process/browser.js":20,"string_decoder":25}],23:[function(_dereq_,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -6520,8 +6520,8 @@ function hasOwnProperty(obj, prop) {
   return Object.prototype.hasOwnProperty.call(obj, prop);
 }
 
-}).call(this,_dereq_("1YiZ5S"),typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./support/isBuffer":29,"1YiZ5S":13,"inherits":11}],31:[function(_dereq_,module,exports){
+}).call(this,_dereq_("VCmEsw"),typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"./support/isBuffer":29,"VCmEsw":13,"inherits":11}],31:[function(_dereq_,module,exports){
 // Ignore module for browserify (see package.json)
 },{}],32:[function(_dereq_,module,exports){
 (function (process,global,__dirname){
@@ -7258,7 +7258,7 @@ jsonld.objectify = function(input, ctx, options, callback) {
         if(!_isArray(types)) {
           types = [types];
         }
-        for(var t in types) {
+        for(var t = 0; t < types.length; ++t) {
           if(!(types[t] in compacted.of_type)) {
             compacted.of_type[types[t]] = [];
           }
@@ -7930,25 +7930,25 @@ if(_browser && typeof global.JsonLdProcessor === 'undefined') {
 /* Utility API */
 
 // define setImmediate and nextTick
-if(typeof process === 'undefined' || !process.nextTick) {
-  if(typeof setImmediate === 'function') {
-    jsonld.setImmediate = jsonld.nextTick = function(callback) {
-      return setImmediate(callback);
-    };
-  } else {
-    jsonld.setImmediate = function(callback) {
-      setTimeout(callback, 0);
-    };
-    jsonld.nextTick = jsonld.setImmediate;
-  }
-} else {
+//// nextTick implementation with browser-compatible fallback ////
+// from https://github.com/caolan/async/blob/master/lib/async.js
+
+// capture the global reference to guard against fakeTimer mocks
+var _setImmediate = typeof setImmediate === 'function' && setImmediate;
+
+var _delay = _setImmediate ? function(fn) {
+  // not a direct alias (for IE10 compatibility)
+  _setImmediate(fn);
+} : function(fn) {
+  setTimeout(fn, 0);
+};
+
+if(typeof process === 'object' && typeof process.nextTick === 'function') {
   jsonld.nextTick = process.nextTick;
-  if(typeof setImmediate === 'function') {
-    jsonld.setImmediate = setImmediate;
-  } else {
-    jsonld.setImmediate = jsonld.nextTick;
-  }
+} else {
+  jsonld.nextTick = _delay;
 }
+jsonld.setImmediate = _setImmediate ? _delay : jsonld.nextTick;
 
 /**
  * Parses a link header. The results will be key'd by the value of "rel".
@@ -9661,7 +9661,7 @@ Processor.prototype.normalize = function(dataset, options, callback) {
             b = b.hash;
             return (a < b) ? -1 : ((a > b) ? 1 : 0);
           });
-          for(var r in results) {
+          for(var r = 0; r < results.length; ++r) {
             // name all bnodes in path namer in key-entry order
             // Note: key-order is preserved in javascript
             for(var key in results[r].pathNamer.existing) {
@@ -10771,7 +10771,9 @@ function _createNodeMap(input, graphs, graph, namer, name, list) {
 
     // copy non-@type keywords
     if(property !== '@type' && _isKeyword(property)) {
-      if(property === '@index' && '@index' in subject) {
+      if(property === '@index' && property in subject &&
+        (input[property] !== subject[property] ||
+        input[property]['@id'] !== subject[property]['@id'])) {
         throw new JsonLdError(
           'Invalid JSON-LD syntax; conflicting @index property detected.',
           'jsonld.SyntaxError',
@@ -10889,7 +10891,7 @@ function _frame(state, subjects, frame, parent, property) {
 
   // add matches to output
   var ids = Object.keys(matches).sort();
-  for(var idx in ids) {
+  for(var idx = 0; idx < ids.length; ++idx) {
     var id = ids[idx];
     var subject = matches[id];
 
@@ -11950,6 +11952,9 @@ function _expandIri(activeCtx, value, relativeTo, localCtx, defined) {
   if(value === null || _isKeyword(value)) {
     return value;
   }
+
+  // ensure value is interpreted as a string
+  value = String(value);
 
   // define term dependency if not defined
   if(localCtx && value in localCtx && defined[value] !== true) {
@@ -13817,8 +13822,8 @@ return factory;
 
 })();
 
-}).call(this,_dereq_("1YiZ5S"),typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},"/../node_modules/jsonld/js")
-},{"./request":31,"1YiZ5S":13,"crypto":31,"es6-promise":33,"http":31,"pkginfo":34,"request":31,"util":31,"xmldom":31}],33:[function(_dereq_,module,exports){
+}).call(this,_dereq_("VCmEsw"),typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},"/..\\node_modules\\jsonld\\js")
+},{"./request":31,"VCmEsw":13,"crypto":31,"es6-promise":33,"http":31,"pkginfo":34,"request":31,"util":31,"xmldom":31}],33:[function(_dereq_,module,exports){
 (function (process,global){
 /*!
  * @overview es6-promise - a tiny implementation of Promises/A+.
@@ -14780,8 +14785,8 @@ return factory;
       this['ES6Promise'] = es6$promise$umd$$ES6Promise;
     }
 }).call(this);
-}).call(this,_dereq_("1YiZ5S"),typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"1YiZ5S":13}],34:[function(_dereq_,module,exports){
+}).call(this,_dereq_("VCmEsw"),typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"VCmEsw":13}],34:[function(_dereq_,module,exports){
 (function (__dirname){
 /*
  * pkginfo.js: Top-level include for the pkginfo module
@@ -14919,7 +14924,7 @@ pkginfo(module, {
   include: ['version'],
   target: pkginfo
 });
-}).call(this,"/../node_modules/jsonld/node_modules/pkginfo/lib")
+}).call(this,"/..\\node_modules\\jsonld\\node_modules\\pkginfo\\lib")
 },{"fs":1,"path":12}],35:[function(_dereq_,module,exports){
 // **N3Lexer** tokenizes N3 documents.
 var fromCharCode = String.fromCharCode;
@@ -15357,6 +15362,8 @@ function N3Parser(options) {
       return this._callback = noop, this._subject = null;
     };
   }
+  this._blankNodePrefix = typeof options.blankNodePrefix !== 'string' ? '' :
+                            '_:' + options.blankNodePrefix.replace(/^_:/, '');
   this._lexer = options.lexer || new N3Lexer({ lineMode: isLineMode });
 }
 
@@ -15905,7 +15912,7 @@ N3Parser.prototype = {
     // We start reading in the top context.
     this._readCallback = this._readInTopContext;
     this._prefixes = Object.create(null);
-    this._prefixes._ = '_:b' + blankNodePrefix++ + '_';
+    this._prefixes._ = this._blankNodePrefix || '_:b' + blankNodePrefix++ + '_';
 
     // If the input argument is not given, shift parameters
     if (typeof input === 'function')
@@ -17595,9 +17602,10 @@ var _ = _dereq_("./utils");
  *  <li> maxCacheSize: if using persistence, maximum size of the index cache </li>
  * </ul>
  */
-Store = function(arg1, arg2) {
+function Store(arg1, arg2) {
     var callback = null;
     var params   = null;
+
 
     if(arguments.length == 0) {
         params ={};
@@ -17615,49 +17623,66 @@ Store = function(arg1, arg2) {
         params['treeOrder'] = 15;
     }
 
-    var Lexicon = InMemoryLexicon;
-    var QuadBackend = InMemoryQuadBackend;
+    this.functionMap = {};
+    this.customFns = {};
+
+    this.engine = null;
+    
+    this._buildEngine(params, callback);
+
+};
+
+/**
+ * Creates new Lexicon, QuadBackend, and QueryEngine.
+ *
+ * @arguments:
+ * @param {Object} [params]
+ * @param {Function} [callback]: returned upon instantiation of store
+ */
+
+Store.prototype._buildEngine = function(params, callback){
+    
+    var Lexicon;
+    var QuadBackend;
+
     if(params['persistent'] === true){
         Lexicon = PersistentLexicon;
         QuadBackend = PersistentBackend;
+    
+    } else {
+        Lexicon = InMemoryLexicon;
+        QuadBackend = InMemoryQuadBackend;
     }
-    this.functionMap = {};
 
     var that = this;
-    this.customFns = {};
+    var createEngine = function(){
+        that.engine = new QueryEngine(params);
+        callback(null, that);
+    };
+    
+    var createQuadBackend = function(lexicon){
+
+        new QuadBackend(params, function(backend){
+            params.lexicon = lexicon;
+            params.backend = backend;
+
+            if(params['overwrite']) {
+                backend.clear(createEngine);
+            } else {
+                createEngine()
+            }
+        })
+    };
+
     new Lexicon(function(lexicon){
-        var createQuadBackend = function() {
-            new QuadBackend(params, function (backend) {
-                /*
-                 if(params['overwrite'] === true) {
-                 // delete index values
-                 backend.clear();
-                 }
-                 */
-                var createEngine = function() {
-                    params.backend = backend;
-                    params.lexicon = lexicon;
-                    that.engine = new QueryEngine(params);
-
-                    callback(null, that);
-                }
-                if(params['overwrite']) {
-                    backend.clear(createEngine)
-                } else {
-                    createEngine();
-                }
-            });
-        }
+        
         if(params['overwrite'] === true) {
-            // delete lexicon values
-            lexicon.clear(createQuadBackend);
+            lexicon.clear(createQuadBackend(lexicon));
         } else {
-            createQuadBackend();
+            createQuadBackend(lexicon);
         }
-
-    },params['name']);
+    },params['name'])
 };
-
 
 /**
  * An instance of RDF JS Interface <code>RDFEnvironment</code>
@@ -19570,7 +19595,7 @@ Lexicon.prototype._unregisterTerm = function (kind, oid, callback) {
                                 });
                             }, function(k){
                                 // delete the graph oid from known graphs
-                                // in case this URI is a graph identifier
+                                // in case this URI is a graph ident
                                 that.knownGraphs.delete(oid, function(){
                                    k();
                                 }) ;
@@ -25343,10 +25368,14 @@ QueryEngine.prototype.executeUpdate = function(syntaxTree, callback) {
             var that = this;
             this.rdfLoader.load(aqt.sourceGraph.value, graph, function(err, result){
                 if(err) {
-                    callback(false, "error batch loading quads");
+                    callback(new Error("error batch loading quads"));
                 } else {
                     that.batchLoad(result,function(result){
-                        callback(result!=null, result||"error batch loading quads");
+                        if(result !== null) {
+                            callback(null, rsult);
+                        } else {
+                            callback(new Error("Error batch loading quads"));
+                        }
                     });
                 }
             });
@@ -25373,13 +25402,24 @@ QueryEngine.prototype.batchLoad = function(quads, callback) {
         var maybeBlankOid, oid, quad;
 
         if (quad[component]['uri'] || quad[component].token === 'uri') {
-            that.lexicon.registerUri(quad[component].uri || quad[component].value, function(oid){
-                if (quad[component].uri != null) {
-                    quad[component] = {'token': 'uri', 'value': quad[component].uri};
-                    delete quad[component]['uri'];
+            var uriValue = (quad[component].uri || quad[component].value);
+            that.lexicon.registerUri(uriValue, function(oid){
+                var returnUriComponent = function(){
+                    if (quad[component].uri != null) {
+                        quad[component] = {'token': 'uri', 'value': quad[component].uri};
+                        delete quad[component]['uri'];
+                    }
+                    newQuad[component] = oid;
+                    k();
+                };
+
+                if(component === 'graph') {
+                    that.lexicon.registerGraph(oid, uriValue, function(){
+                        returnUriComponent();
+                    });
+                } else {
+                    returnUriComponent();
                 }
-                newQuad[component] = oid;
-                k();
             });
         } else if (quad[component]['literal'] || quad[component].token === 'literal') {
             that.lexicon.registerLiteral(quad[component].literal || quad[component].value, function(oid){
@@ -27529,17 +27569,17 @@ var async = _dereq_('./utils');
  * @param left
  * @param right
  * @param cost
- * @param identifier
+ * @param ident
  * @param allVars
  * @param joinVars
  * @constructor
  */
-var QueryPlan = function(left, right, cost, identifier, allVars, joinVars) {
+var QueryPlan = function(left, right, cost, ident, allVars, joinVars) {
 
     this.left =  left;
     this.right = right;
     this.cost = cost;
-    this.i = identifier;
+    this.i = ident;
     this.vars = allVars;
     this.join = joinVars;
 
@@ -27749,8 +27789,8 @@ QueryPlanDPSize.createJoinTree = function(leftPlan, rightPlan) {
         }
     }
 
-    // Creates a new identifier for the join tree using the union
-    // of both plans identifiers.
+    // Creates a new ident for the join tree using the union
+    // of both plans idents.
     var rightIds = rightPlan.i.split("_");
     var leftIds = leftPlan.i.split("_");
     var distinct = {};
@@ -29602,7 +29642,7 @@ module.exports = {
     seq: seq
 };
 
-}).call(this,_dereq_("1YiZ5S"))
-},{"1YiZ5S":13,"timers":26}]},{},[39])
+}).call(this,_dereq_("VCmEsw"))
+},{"VCmEsw":13,"timers":26}]},{},[39])
 (39)
 });

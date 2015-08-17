@@ -36,7 +36,10 @@ gulp.task('browserify', ['clean-dist'], function() {
 
 gulp.task('minimize', ['browserify'], function() {
     return gulp.src('dist/*.js')
-        .pipe(closure({language: 'ECMASCRIPT5'}))
+        .pipe(closure({
+            language: 'ECMASCRIPT5',
+            compilation_level: 'WHITESPACE_ONLY'
+        }))
         .pipe(rename('rdfstore_min.js'))
         .pipe(gulp.dest('./dist'));
 });
